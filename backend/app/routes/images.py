@@ -69,9 +69,8 @@ async def remove_background(file: UploadFile):
     upload_path = UPLOADS_DIR / f"{unique_id}.{ext}"
     output_path = OUTPUTS_DIR / f"{unique_id}.png"
 
-    upload_path.write_bytes(contents)
-
     try:
+        upload_path.write_bytes(contents)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, partial(remove, contents))
         output_path.write_bytes(result)
