@@ -1,16 +1,13 @@
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.config import BASE_DIR, OUTPUTS_DIR, UPLOADS_DIR, get_cors_allowed_origins
 from app.routes.images import router as images_router
 
-BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
-UPLOADS_DIR = STATIC_DIR / "uploads"
-OUTPUTS_DIR = STATIC_DIR / "outputs"
 
 
 @asynccontextmanager
@@ -24,7 +21,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=get_cors_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -19,5 +19,9 @@ export async function removeBackground(file) {
   }
 
   const data = await response.json()
-  return data.url
+  const imageUrl = typeof data.url === 'string' ? data.url.trim() : ''
+  if (!imageUrl) {
+    throw new Error(`Invalid API response: expected a non-empty url string but got: ${JSON.stringify(data.url)}`)
+  }
+  return imageUrl
 }

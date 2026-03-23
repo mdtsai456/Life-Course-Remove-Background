@@ -67,8 +67,9 @@ export default function ImageUploader() {
   return (
     <div className="uploader">
       <form className="upload-form" onSubmit={handleSubmit}>
-        <label className="file-label">
+        <label htmlFor="image-upload" className="file-label">
           <input
+            id="image-upload"
             type="file"
             accept="image/png, image/jpeg, image/webp"
             onChange={handleFileChange}
