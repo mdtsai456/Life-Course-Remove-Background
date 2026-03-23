@@ -82,6 +82,7 @@ async def remove_background(file: UploadFile):
         raise HTTPException(
             status_code=500,
             detail="Failed to process image. Please try again.",
-        )
+        ) from None
 
+    _cleanup(upload_path)
     return {"url": f"/static/outputs/{unique_id}.png"}
