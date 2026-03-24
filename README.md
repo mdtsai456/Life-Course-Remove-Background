@@ -134,6 +134,3 @@ On the first request, `rembg` downloads its model weights (~170 MB). Subsequent 
 
 **Port conflicts**
 If port 8000 or 5173 is already in use, change the backend port with `--port <n>` and update the Vite proxy config in `vite.config.js` accordingly.
-
-**Static files not found after processing**
-Make sure `backend/static/uploads/` and `backend/static/outputs/` exist, or start the backend once — the lifespan handler creates them automatically.
