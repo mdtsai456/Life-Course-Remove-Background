@@ -17,7 +17,7 @@ export default class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: '2rem' }}>
+        <div className="error-boundary">
           <p className="error-message">
             Something went wrong.{' '}
             <button
