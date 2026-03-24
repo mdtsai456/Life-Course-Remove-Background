@@ -1,9 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_cors_allowed_origins
 from app.routes.images import router as images_router
 from app.routes.threed import router as threed_router
+from app.routes.voice import router as voice_router
 
 app = FastAPI()
 
@@ -15,5 +16,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response: Response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
 app.include_router(images_router)
 app.include_router(threed_router)
+app.include_router(voice_router)

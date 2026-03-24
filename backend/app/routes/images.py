@@ -70,4 +70,8 @@ async def remove_background(file: UploadFile):
             detail="Failed to process image. Please try again.",
         )
 
-    return Response(content=result, media_type="image/png")
+    return Response(
+        content=result,
+        media_type="image/png",
+        headers={"Content-Disposition": "attachment; filename=\"output.png\""},
+    )

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { cloneVoice } from '../services/api'
 
 // --- Pure helpers (outside component, never recreated) ---
 
@@ -50,7 +51,7 @@ export default function VoiceCloner() {
   const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [text, setText]                     = useState('')
   const [resultUrl, setResultUrl]           = useState(null)
-  const [resultMimeType, setResultMimeType] = useState('')
+  const [recordingMimeType, setRecordingMimeType] = useState('')
   const [loading, setLoading]               = useState(false)
   const [error, setError]                   = useState('')
 
@@ -60,6 +61,7 @@ export default function VoiceCloner() {
   const chunksRef        = useRef([])
   const timerRef         = useRef(null)
   const disposedRef      = useRef(false)
+  const abortControllerRef = useRef(null)
 
   // Revoke resultUrl on change or unmount
   useEffect(() => {
@@ -78,6 +80,7 @@ export default function VoiceCloner() {
       }
       streamRef.current?.getTracks().forEach(t => t.stop())
       streamRef.current = null
+      abortControllerRef.current?.abort()
     }
   }, [])
 
@@ -140,7 +143,7 @@ export default function VoiceCloner() {
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType })
         chunksRef.current = []
         setAudioBlob(blob)
-        setResultMimeType(recorder.mimeType)
+        setRecordingMimeType(recorder.mimeType)
         stopMicTracks()
       })
     }
@@ -176,17 +179,9 @@ export default function VoiceCloner() {
     e.preventDefault()
     if (!audioBlob || !text.trim()) return
 
-    // Validate blob before submit
-    if (!audioBlob.type.startsWith('audio/')) {
-      setError('無效的音頻格式。')
-      return
-    }
-    const MAX_BLOB_SIZE = 10 * 1024 * 1024
-    if (audioBlob.size > MAX_BLOB_SIZE) {
-      setError('音頻檔案過大（最大 10 MB）。')
-      return
-    }
-
+    abortControllerRef.current?.abort()
+    const localController = new AbortController()
+    abortControllerRef.current = localController
     setLoading(true)
     setError('')
     if (resultUrl) {
@@ -194,21 +189,32 @@ export default function VoiceCloner() {
       setResultUrl(null)
     }
 
+    const ext = recordingMimeType ? mimeTypeToExtension(recordingMimeType) : 'audio'
+    const audioFile = new File([audioBlob], `recording.${ext}`, { type: audioBlob.type })
+
+    let localResultUrl = null
     try {
-      // TODO: Replace with import { cloneVoice } from '../services/api'
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      if (disposedRef.current) return
-      const url = URL.createObjectURL(audioBlob)
-      setResultUrl(url)
+      localResultUrl = await cloneVoice(audioFile, text.trim(), localController.signal)
+      if (!localController.signal.aborted) {
+        setResultUrl(localResultUrl)
+      }
     } catch (err) {
-      setError(err.message || 'Something went wrong. Please try again.')
+      if (err.name === 'AbortError') return
+      if (!localController.signal.aborted) {
+        setError(err.message || 'Something went wrong. Please try again.')
+      }
     } finally {
-      setLoading(false)
+      if (localResultUrl && localController.signal.aborted) {
+        URL.revokeObjectURL(localResultUrl)
+      }
+      if (!localController.signal.aborted) {
+        setLoading(false)
+      }
     }
   }
 
   const isDisabled = !audioBlob || !text.trim() || loading || isRecording || isAcquiringMic
-  const ext = resultMimeType ? mimeTypeToExtension(resultMimeType) : 'audio'
+  const ext = recordingMimeType ? mimeTypeToExtension(recordingMimeType) : 'audio'
 
   return (
     <div className="voice-cloner">

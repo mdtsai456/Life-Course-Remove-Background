@@ -80,4 +80,8 @@ async def image_to_3d(file: UploadFile):
     logger.info("Returning mock GLB for development (file size: %d bytes)", len(contents))
     glb = _make_mock_glb()
 
-    return Response(content=glb, media_type="model/gltf-binary")
+    return Response(
+        content=glb,
+        media_type="model/gltf-binary",
+        headers={"Content-Disposition": "attachment; filename=\"model.glb\""},
+    )

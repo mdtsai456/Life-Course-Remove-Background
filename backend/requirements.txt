@@ -3,3 +3,6 @@ uvicorn[standard]==0.30.6
 python-multipart==0.0.22
 rembg==2.0.73
 pillow==12.1.1
+httpx==0.28.1
+pytest==8.3.5
+pytest-asyncio==0.25.3
