@@ -80,9 +80,8 @@ Removes the background from an uploaded image.
 
 **Success response** — `200 OK`
 
-```json
-{ "url": "/static/outputs/<id>.png" }
-```
+Returns the processed image as a binary PNG stream (`Content-Type: image/png`).
+The response body can be used directly as an `<img>` src (via `URL.createObjectURL`) or downloaded.
 
 **Error responses**
 
