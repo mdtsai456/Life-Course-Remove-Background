@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 // --- Pure helpers (outside component, never recreated) ---
 
 function getSupportedMimeType() {
+  if (typeof MediaRecorder === 'undefined') return ''
   const candidates = [
     'audio/mp4;codecs=mp4a.40.2', // Safari 14.1+ (must come first)
     'audio/mp4',
@@ -58,6 +59,7 @@ export default function VoiceCloner() {
   const streamRef        = useRef(null)
   const chunksRef        = useRef([])
   const timerRef         = useRef(null)
+  const disposedRef      = useRef(false)
 
   // Revoke resultUrl on change or unmount
   useEffect(() => {
@@ -69,6 +71,7 @@ export default function VoiceCloner() {
   // Cleanup on unmount (tab switch or component removal)
   useEffect(() => {
     return () => {
+      disposedRef.current = true
       clearInterval(timerRef.current)
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop()
@@ -89,7 +92,7 @@ export default function VoiceCloner() {
       setError('麥克風存取需要 HTTPS 連線。')
       return
     }
-    if (!navigator.mediaDevices?.getUserMedia) {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       setError('您的瀏覽器不支援音頻錄製。請使用 Chrome、Firefox 或 Safari 14.1+。')
       return
     }
@@ -106,6 +109,11 @@ export default function VoiceCloner() {
     } catch (err) {
       setError(mapGetUserMediaError(err))
       setIsAcquiringMic(false)
+      return
+    }
+
+    if (disposedRef.current) {
+      stream.getTracks().forEach(t => t.stop())
       return
     }
 
@@ -189,6 +197,7 @@ export default function VoiceCloner() {
     try {
       // TODO: Replace with import { cloneVoice } from '../services/api'
       await new Promise(resolve => setTimeout(resolve, 1500))
+      if (disposedRef.current) return
       const url = URL.createObjectURL(audioBlob)
       setResultUrl(url)
     } catch (err) {
@@ -250,6 +259,7 @@ export default function VoiceCloner() {
 
         {/* Text input */}
         <textarea
+          aria-label="Text to read aloud"
           className="prompt-input"
           value={text}
           onChange={e => setText(e.target.value)}

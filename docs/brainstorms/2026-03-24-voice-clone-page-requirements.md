@@ -54,8 +54,8 @@ topic: voice-clone-page
 
 ### Deferred to Planning
 
-- [影響 R7][Technical] Mock 應回傳哪種音頻格式？（WAV / MP3 / 瀏覽器預設錄製格式 webm）
-- [影響 R2][Needs research] `MediaRecorder` 錄製的預設 MIME type 是否需要在送出前轉換格式以符合後端預期？
+- （影響 R7，Technical）Mock 應回傳哪種音頻格式？（WAV / MP3 / 瀏覽器預設錄製格式 webm）
+- （影響 R2，Needs research）`MediaRecorder` 錄製的預設 MIME type 是否需要在送出前轉換格式以符合後端預期？
 
 ## Next Steps
 

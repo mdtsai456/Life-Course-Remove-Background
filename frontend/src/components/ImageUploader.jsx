@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { removeBackground } from '../services/api'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
@@ -10,6 +10,12 @@ export default function ImageUploader() {
   const [resultUrl, setResultUrl] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  const abortControllerRef = useRef(null)
+
+  useEffect(() => {
+    return () => abortControllerRef.current?.abort()
+  }, [])
 
   useEffect(() => {
     if (!file) {
@@ -56,14 +62,16 @@ export default function ImageUploader() {
     e.preventDefault()
     if (!file) return
 
+    abortControllerRef.current = new AbortController()
     setLoading(true)
     setError('')
     setResultUrl(null)
 
     try {
-      const url = await removeBackground(file)
+      const url = await removeBackground(file, abortControllerRef.current.signal)
       setResultUrl(url)
     } catch (err) {
+      if (err.name === 'AbortError') return
       setError(err.message || 'Something went wrong. Please try again.')
     } finally {
       setLoading(false)

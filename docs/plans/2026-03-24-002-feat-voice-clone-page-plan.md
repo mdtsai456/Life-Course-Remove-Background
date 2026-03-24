@@ -108,7 +108,7 @@ React 19 StrictMode 會雙重呼叫 `useEffect`（mount → cleanup → mount）
 
 使用 `isAcquiringMic` state 來涵蓋 `getUserMedia` 的非同步等待期（async gap），防止使用者在這段時間內點擊其他按鈕：
 
-```
+```text
 State:
   isAcquiringMic   (boolean)       - getUserMedia 正在等待中
   audioBlob        (Blob | null)   - 錄製完成的音頻 Blob（null = 尚未錄音或正在錄音中）
@@ -263,7 +263,7 @@ function mapGetUserMediaError(err) {
 
 加入 `activeTab` state 及頂部 Tab 導覽列，根據 tab 值條件渲染對應元件。**移除現有的靜態 subtitle 段落。**
 
-```
+```jsx
 import { useState } from 'react'
 import ImageUploader from './components/ImageUploader'
 import VoiceCloner from './components/VoiceCloner'
@@ -300,7 +300,7 @@ export default function App() {
 
 完整的聲音克隆功能元件，含所有安全 lifecycle 處理。
 
-```
+```text
 // --- 元件外（純函式，never recreated）---
 
 function getSupportedMimeType() {
@@ -393,7 +393,7 @@ function mapGetUserMediaError(err) { /* see Technical Considerations */ }
 
 在檔案末端追加以下 class（不修改任何既有規則）：
 
-```
+```text
 /* Tab navigation */
 .nav-tabs           - display flex, border-bottom: 2px solid #d0d0d0, margin-bottom 1.5rem
 .nav-tab            - Tab 按鈕（background none, cursor pointer, padding, font-size）
@@ -469,7 +469,7 @@ const autoStopTimer = setTimeout(() => handleStopRecording(), MAX_DURATION_MS)
 
 ### 需新增的套件
 
-```
+```bash
 npm install -D vitest @testing-library/react @testing-library/user-event @testing-library/jest-dom jsdom
 ```
 
