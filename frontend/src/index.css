@@ -155,6 +155,7 @@ body {
 .preview-image {
   width: 100%;
   height: auto;
+  max-height: 60vh;
   display: block;
   border-radius: 8px;
   object-fit: contain;
