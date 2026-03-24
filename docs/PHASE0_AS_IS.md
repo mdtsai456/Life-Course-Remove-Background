@@ -6,6 +6,16 @@
 
 ---
 
+## 文件與程式實作差異（本節待更新）
+
+本文件下文仍保留**原敘述**以利對照 PRD／SDD 與既有測試清單；惟經與目前倉庫程式比對，**下列項目與實作不符**，後續應透過**修訂本文件**或**修改程式**擇一對齊。在對齊完成前，請勿將下文表格中相關列視為已驗證之現況。
+
+- **成功回應格式：** 下文 §2.1 記載成功時回傳 JSON `{"url": "/static/outputs/<uuid>.png"}`。目前 `backend/app/routes/images.py` 於成功時回傳 **`Response(..., media_type="image/png")`**，即 **PNG 二進位內容**，**並非** JSON，亦**無** `url` 欄位。
+- **靜態檔與儲存：** 下文 §1、§4 描述啟動時建立 `static/uploads`、`static/outputs`、掛載 **`StaticFiles`** 於 `/static`，以及輸出檔寫入磁碟並經 `/static/outputs/...` 提供。目前 `backend/app/main.py` **未**掛載 `StaticFiles`，**未**見於啟動時建立上述目錄；`images.py` **未**將結果寫入 `static/outputs/<uuid>.png`。
+- **前端取用結果：** 下文 §3 敘述與「回傳 URL」之前後文一致時，預期前端會以 JSON 內之 `url` 取圖。目前 `frontend/src/services/api.js` 於成功時使用 **`response.blob()`** 處理回應，與**直接回傳圖檔**之後端行為一致，與下文 §2.1／§4 之 **JSON + 靜態路徑** 敘述不一致。
+
+---
+
 ## 1. 架構總覽
 
 | 面向 | Phase 0 實際狀態 |
