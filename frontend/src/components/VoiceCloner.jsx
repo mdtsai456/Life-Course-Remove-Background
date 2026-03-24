@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { cloneVoice } from '../services/api'
 
 // --- Pure helpers (outside component, never recreated) ---
 
@@ -60,6 +61,7 @@ export default function VoiceCloner() {
   const chunksRef        = useRef([])
   const timerRef         = useRef(null)
   const disposedRef      = useRef(false)
+  const abortControllerRef = useRef(null)
 
   // Revoke resultUrl on change or unmount
   useEffect(() => {
@@ -78,6 +80,7 @@ export default function VoiceCloner() {
       }
       streamRef.current?.getTracks().forEach(t => t.stop())
       streamRef.current = null
+      abortControllerRef.current?.abort()
     }
   }, [])
 
@@ -187,6 +190,8 @@ export default function VoiceCloner() {
       return
     }
 
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = new AbortController()
     setLoading(true)
     setError('')
     if (resultUrl) {
@@ -194,16 +199,19 @@ export default function VoiceCloner() {
       setResultUrl(null)
     }
 
+    const ext = resultMimeType ? mimeTypeToExtension(resultMimeType) : 'audio'
+    const audioFile = new File([audioBlob], `recording.${ext}`, { type: audioBlob.type })
+
     try {
-      // TODO: Replace with import { cloneVoice } from '../services/api'
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      if (disposedRef.current) return
-      const url = URL.createObjectURL(audioBlob)
+      const url = await cloneVoice(audioFile, text.trim(), abortControllerRef.current.signal)
       setResultUrl(url)
     } catch (err) {
+      if (err.name === 'AbortError') return
       setError(err.message || 'Something went wrong. Please try again.')
     } finally {
-      setLoading(false)
+      if (!abortControllerRef.current?.signal.aborted) {
+        setLoading(false)
+      }
     }
   }
 
