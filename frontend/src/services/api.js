@@ -19,7 +19,7 @@ export async function removeBackground(file) {
   }
 
   const blob = await response.blob()
-  if (!blob || blob.size === 0) {
+  if (blob.size === 0) {
     throw new Error('Received empty response from server.')
   }
   return URL.createObjectURL(blob)

@@ -40,8 +40,7 @@ for `originalUrl`.
 
 - **`api.js` returns a blob URL string** — maintains the current return-type contract so
   `ImageUploader.jsx`'s call site is unchanged. (see origin)
-- **Keep `/static` mount and directory mkdirs** — the brainstorm explicitly preserves the
-  mount and `static/` structure for potential future use. (see origin)
+- **Remove dead static infrastructure** — `UPLOADS_DIR`, `OUTPUTS_DIR`, lifespan hook, `StaticFiles` mount, and `backend/static/` directory all removed; no application code references them.
 - **No `AbortController`** — deferred; the in-flight-unmount blob leak is minor for this
   single-page app and out of scope for this fix.
 - **No `Content-Disposition` header** — the frontend `download` attribute already controls
@@ -53,11 +52,13 @@ for `originalUrl`.
 
 | File | Change |
 |---|---|
-| `backend/app/routes/images.py` | Core change — remove disk writes, add `Response`, guard empty result |
+| `backend/app/routes/images.py` | Core change — remove disk writes, add `Response`, guard empty result separately from rembg exceptions |
+| `backend/app/main.py` | Remove lifespan hook, `StaticFiles` mount, and related imports |
+| `backend/app/config.py` | Remove `UPLOADS_DIR` and `OUTPUTS_DIR` constants |
+| `backend/static/` | Entire directory deleted |
 | `frontend/src/services/api.js` | Replace `response.json()` success path with `response.blob()` |
-| `frontend/src/components/ImageUploader.jsx` | Add `useEffect` to revoke `resultUrl` blob URL |
-
-`backend/app/main.py`, `backend/app/config.py`, and `frontend/vite.config.js` are **not changed**.
+| `frontend/src/components/ImageUploader.jsx` | Add `useEffect` to revoke `resultUrl` blob URL; dynamic download filename |
+| `frontend/vite.config.js` | Remove dead `/static` proxy block |
 
 ### Backend changes — `images.py`
 
@@ -140,12 +141,9 @@ useEffect(() => {
 
 ## System-Wide Impact
 
-- **`/static/outputs/` and `/static/uploads/`** remain mounted and accessible via the
-  FastAPI `StaticFiles` middleware, but no application code writes files there.
-- **`UPLOADS_DIR` and `OUTPUTS_DIR`** are still created on startup via the lifespan hook —
-  the directories exist on disk but stay empty.
-- The Vite dev proxy rule for `/static` becomes dead in practice (no frontend requests hit it),
-  but it causes no functional harm and is left in place.
+- **`/static/outputs/` and `/static/uploads/`** no longer exist on disk; the `StaticFiles` mount and lifespan `mkdir` calls have been removed from `main.py`.
+- **`UPLOADS_DIR` and `OUTPUTS_DIR`** are removed from `config.py`; no application code references them.
+- The Vite dev proxy rule for `/static` has been removed from `vite.config.js`.
 
 ## Dependencies & Risks
 

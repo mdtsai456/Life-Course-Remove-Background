@@ -53,16 +53,21 @@ async def remove_background(file: UploadFile):
             detail="Unsupported file type. Allowed: png, jpeg, webp.",
         )
 
+    loop = asyncio.get_running_loop()
     try:
-        loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, partial(remove, contents))
-        if result is None or len(result) == 0:
-            raise ValueError("rembg returned empty output")
     except Exception:
         logger.exception("Background removal failed")
         raise HTTPException(
             status_code=500,
             detail="Failed to process image. Please try again.",
         ) from None
+
+    if result is None or len(result) == 0:
+        logger.error("rembg returned empty output for a valid input image")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to process image. Please try again.",
+        )
 
     return Response(content=result, media_type="image/png")
