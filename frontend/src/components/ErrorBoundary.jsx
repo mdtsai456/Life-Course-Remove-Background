@@ -22,7 +22,7 @@ export default class ErrorBoundary extends Component {
             Something went wrong.{' '}
             <button
               onClick={() => window.location.reload()}
-              style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', textDecoration: 'underline', padding: 0, font: 'inherit' }}
+              className="link-button"
             >
               Refresh the page
             </button>
