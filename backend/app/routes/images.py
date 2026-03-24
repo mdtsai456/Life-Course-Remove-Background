@@ -2,19 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
-from contextlib import suppress
 from functools import partial
-from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException, Response, UploadFile
 from rembg import remove
-
-from app.config import OUTPUTS_DIR, UPLOADS_DIR
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
-MIME_TO_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +23,6 @@ def _detect_image_type(contents: bytes) -> str | None:
     if len(contents) >= 12 and contents[:4] == b"RIFF" and contents[8:12] == b"WEBP":
         return "image/webp"
     return None
-
-
-def _cleanup(path: Path) -> None:
-    with suppress(FileNotFoundError):
-        path.unlink()
 
 
 @router.post("/api/remove-background")
@@ -64,24 +53,21 @@ async def remove_background(file: UploadFile):
             detail="Unsupported file type. Allowed: png, jpeg, webp.",
         )
 
-    unique_id = uuid.uuid4().hex
-    ext = MIME_TO_EXT[detected_type]
-    upload_path = UPLOADS_DIR / f"{unique_id}.{ext}"
-    output_path = OUTPUTS_DIR / f"{unique_id}.png"
-
+    loop = asyncio.get_running_loop()
     try:
-        upload_path.write_bytes(contents)
-        loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, partial(remove, contents))
-        output_path.write_bytes(result)
     except Exception:
-        logger.exception("Background removal failed for upload %s", unique_id)
-        _cleanup(upload_path)
-        _cleanup(output_path)
+        logger.exception("Background removal failed")
         raise HTTPException(
             status_code=500,
             detail="Failed to process image. Please try again.",
         ) from None
 
-    _cleanup(upload_path)
-    return {"url": f"/static/outputs/{unique_id}.png"}
+    if result is None or len(result) == 0:
+        logger.error("rembg returned empty output for a valid input image")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to process image. Please try again.",
+        )
+
+    return Response(content=result, media_type="image/png")

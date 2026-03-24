@@ -28,7 +28,7 @@ The backend will be available at `http://localhost:8000`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Comma-separated list of allowed frontend origins |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | Comma-separated list of allowed frontend origins |
 
 Example:
 
@@ -80,9 +80,8 @@ Removes the background from an uploaded image.
 
 **Success response** — `200 OK`
 
-```json
-{ "url": "/static/outputs/<id>.png" }
-```
+Returns the processed image as a binary PNG stream (`Content-Type: image/png`).
+The response body can be used directly as an `<img>` src (via `URL.createObjectURL`) or downloaded.
 
 **Error responses**
 
@@ -135,6 +134,3 @@ On the first request, `rembg` downloads its model weights (~170 MB). Subsequent 
 
 **Port conflicts**
 If port 8000 or 5173 is already in use, change the backend port with `--port <n>` and update the Vite proxy config in `vite.config.js` accordingly.
-
-**Static files not found after processing**
-Make sure `backend/static/uploads/` and `backend/static/outputs/` exist, or start the backend once — the lifespan handler creates them automatically.
