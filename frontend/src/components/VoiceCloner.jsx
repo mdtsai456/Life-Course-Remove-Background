@@ -51,7 +51,7 @@ export default function VoiceCloner() {
   const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [text, setText]                     = useState('')
   const [resultUrl, setResultUrl]           = useState(null)
-  const [resultMimeType, setResultMimeType] = useState('')
+  const [recordingMimeType, setRecordingMimeType] = useState('')
   const [loading, setLoading]               = useState(false)
   const [error, setError]                   = useState('')
 
@@ -143,7 +143,7 @@ export default function VoiceCloner() {
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType })
         chunksRef.current = []
         setAudioBlob(blob)
-        setResultMimeType(recorder.mimeType)
+        setRecordingMimeType(recorder.mimeType)
         stopMicTracks()
       })
     }
@@ -179,19 +179,9 @@ export default function VoiceCloner() {
     e.preventDefault()
     if (!audioBlob || !text.trim()) return
 
-    // Validate blob before submit
-    if (!audioBlob.type.startsWith('audio/')) {
-      setError('無效的音頻格式。')
-      return
-    }
-    const MAX_BLOB_SIZE = 10 * 1024 * 1024
-    if (audioBlob.size > MAX_BLOB_SIZE) {
-      setError('音頻檔案過大（最大 10 MB）。')
-      return
-    }
-
     abortControllerRef.current?.abort()
-    abortControllerRef.current = new AbortController()
+    const localController = new AbortController()
+    abortControllerRef.current = localController
     setLoading(true)
     setError('')
     if (resultUrl) {
@@ -199,24 +189,32 @@ export default function VoiceCloner() {
       setResultUrl(null)
     }
 
-    const ext = resultMimeType ? mimeTypeToExtension(resultMimeType) : 'audio'
+    const ext = recordingMimeType ? mimeTypeToExtension(recordingMimeType) : 'audio'
     const audioFile = new File([audioBlob], `recording.${ext}`, { type: audioBlob.type })
 
+    let localResultUrl = null
     try {
-      const url = await cloneVoice(audioFile, text.trim(), abortControllerRef.current.signal)
-      setResultUrl(url)
+      localResultUrl = await cloneVoice(audioFile, text.trim(), localController.signal)
+      if (!localController.signal.aborted) {
+        setResultUrl(localResultUrl)
+      }
     } catch (err) {
       if (err.name === 'AbortError') return
-      setError(err.message || 'Something went wrong. Please try again.')
+      if (!localController.signal.aborted) {
+        setError(err.message || 'Something went wrong. Please try again.')
+      }
     } finally {
-      if (!abortControllerRef.current?.signal.aborted) {
+      if (localResultUrl && localController.signal.aborted) {
+        URL.revokeObjectURL(localResultUrl)
+      }
+      if (!localController.signal.aborted) {
         setLoading(false)
       }
     }
   }
 
   const isDisabled = !audioBlob || !text.trim() || loading || isRecording || isAcquiringMic
-  const ext = resultMimeType ? mimeTypeToExtension(resultMimeType) : 'audio'
+  const ext = recordingMimeType ? mimeTypeToExtension(recordingMimeType) : 'audio'
 
   return (
     <div className="voice-cloner">

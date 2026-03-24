@@ -29,6 +29,9 @@ def _detect_audio_type(contents: bytes) -> str | None:
 
 @router.post(
     "/api/clone-voice",
+    summary="Clone a voice",
+    description="Upload an audio sample and text to generate speech in the cloned voice.",
+    tags=["voice"],
     response_class=Response,
     responses={
         200: {
@@ -37,7 +40,7 @@ def _detect_audio_type(contents: bytes) -> str | None:
         }
     },
 )
-async def clone_voice(file: UploadFile, text: str = Form(...)) -> Response:
+async def clone_voice(file: UploadFile, text: str | None = Form(None)) -> Response:
     # Validate MIME type (strip codec suffix, reject None)
     mime = (file.content_type or "").split(";")[0].strip()
     if mime not in ALLOWED_MIME_TYPES:
@@ -47,8 +50,8 @@ async def clone_voice(file: UploadFile, text: str = Form(...)) -> Response:
         )
 
     # Validate text
-    stripped = text.strip()
-    if not stripped:
+    stripped = (text or "").strip()
+    if text is None or stripped == "":
         raise HTTPException(status_code=400, detail="Text must not be empty.")
 
     # Validate file size
@@ -77,4 +80,9 @@ async def clone_voice(file: UploadFile, text: str = Form(...)) -> Response:
         len(contents),
         len(stripped),
     )
-    return Response(content=contents, media_type=detected)
+    ext = {"audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a"}[detected]
+    return Response(
+        content=contents,
+        media_type=detected,
+        headers={"Content-Disposition": f"attachment; filename=\"cloned.{ext}\""},
+    )
