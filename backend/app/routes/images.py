@@ -56,7 +56,7 @@ async def remove_background(file: UploadFile):
     try:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, partial(remove, contents))
-        if not result:
+        if result is None or len(result) == 0:
             raise ValueError("rembg returned empty output")
     except Exception:
         logger.exception("Background removal failed")
