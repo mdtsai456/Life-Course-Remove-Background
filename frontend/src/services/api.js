@@ -12,7 +12,7 @@ async function postForBlob(url, formData, fallbackMessage, signal) {
       if (typeof errorData.detail === 'string') {
         message = errorData.detail
       } else if (Array.isArray(errorData.detail)) {
-        message = errorData.detail.map(e => e.msg).join('; ')
+        message = errorData.detail.map(e => e.msg ?? e.message ?? String(e)).join('; ')
       }
     } catch (err) {
       if (err.name === 'AbortError') throw err
