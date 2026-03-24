@@ -242,11 +242,11 @@ app.include_router(threed_router)
 ```bash
 cd backend && uvicorn app.main:app --reload &
 sleep 2
-curl -s http://localhost:8000/docs | grep -c "image-to-3d"
+curl -s http://localhost:8000/openapi.json | grep -c '"/image-to-3d'
 kill %1
 ```
 
-Expected 輸出：`1`（endpoint 出現在 OpenAPI docs）
+Expected 輸出：`1`（路徑出現在 OpenAPI JSON 的 `paths` 中）
 
 **Step 3: Commit**
 

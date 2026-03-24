@@ -37,7 +37,19 @@ def _make_mock_glb() -> bytes:
     return file_header + chunk_header + json_chunk_data
 
 
-@router.post("/api/image-to-3d")
+@router.post(
+    "/api/image-to-3d",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {
+                "model/gltf-binary": {
+                    "schema": {"type": "string", "format": "binary"}
+                }
+            }
+        }
+    },
+)
 async def image_to_3d(file: UploadFile):
     if file.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
