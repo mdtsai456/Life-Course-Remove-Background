@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ImageUploader from './components/ImageUploader'
 import VoiceCloner from './components/VoiceCloner'
+import ImageTo3D from './components/ImageTo3D'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('remove-bg')
@@ -22,11 +23,18 @@ export default function App() {
           >
             Voice Clone
           </button>
+          <button
+            className={`nav-tab${activeTab === 'image-to-3d' ? ' active' : ''}`}
+            onClick={() => setActiveTab('image-to-3d')}
+          >
+            Image to 3D
+          </button>
         </nav>
       </header>
       <main>
         {activeTab === 'remove-bg' && <ImageUploader />}
         {activeTab === 'voice-clone' && <VoiceCloner />}
+        {activeTab === 'image-to-3d' && <ImageTo3D />}
       </main>
     </div>
   )
