@@ -1,10 +1,11 @@
-export async function removeBackground(file) {
+export async function removeBackground(file, signal) {
   const formData = new FormData()
   formData.append('file', file)
 
   const response = await fetch('/api/remove-background', {
     method: 'POST',
     body: formData,
+    signal,
   })
 
   if (!response.ok) {
