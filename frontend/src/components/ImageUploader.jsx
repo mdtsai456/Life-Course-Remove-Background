@@ -21,6 +21,12 @@ export default function ImageUploader() {
     return () => URL.revokeObjectURL(url)
   }, [file])
 
+  useEffect(() => {
+    return () => {
+      if (resultUrl) URL.revokeObjectURL(resultUrl)
+    }
+  }, [resultUrl])
+
   function handleFileChange(e) {
     const selected = e.target.files?.[0] || null
     setError('')
@@ -113,7 +119,7 @@ export default function ImageUploader() {
               <img src={resultUrl} alt="Background removed" className="preview-image checkerboard" />
               <a
                 href={resultUrl}
-                download="background-removed.png"
+                download={file ? file.name.replace(/\.[^.]+$/, '') + '_no_bg.png' : 'background-removed.png'}
                 className="download-button"
               >
                 Download
