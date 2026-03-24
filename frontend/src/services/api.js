@@ -42,6 +42,6 @@ export async function convertTo3D(file, signal) {
 export async function cloneVoice(audioFile, text, signal) {
   const formData = new FormData()
   formData.append('file', audioFile)
-  formData.append('text', text)
+  formData.append('text', text ?? '')
   return postForBlob('/api/clone-voice', formData, 'Failed to clone voice.', signal)
 }
