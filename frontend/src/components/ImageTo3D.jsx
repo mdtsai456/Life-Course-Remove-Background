@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { removeBackground, convertTo3D } from '../services/api'
+import ProgressStatus from './ProgressStatus'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp']
@@ -12,12 +13,20 @@ export default function ImageTo3D() {
   const [model3dUrl, setModel3dUrl] = useState(null)
   const [step, setStep] = useState('idle') // idle | removing | removed | converting | done
   const [error, setError] = useState('')
+  const [removePhase, setRemovePhase] = useState(null)
+  const [convertPhase, setConvertPhase] = useState(null)
 
   const abortControllerRef = useRef(null)
+  const removePhaseTimerRef = useRef(null)
+  const convertPhaseTimerRef = useRef(null)
 
   // Cleanup on unmount: abort pending requests
   useEffect(() => {
-    return () => abortControllerRef.current?.abort()
+    return () => {
+      abortControllerRef.current?.abort()
+      clearTimeout(removePhaseTimerRef.current)
+      clearTimeout(convertPhaseTimerRef.current)
+    }
   }, [])
 
   // Original image preview URL lifecycle
@@ -84,9 +93,15 @@ export default function ImageTo3D() {
     setRemovedBgUrl(null)
     setRemovedBgBlob(null)
     setModel3dUrl(null)
+    clearTimeout(removePhaseTimerRef.current)
+    setRemovePhase('uploading')
 
+    const uploadTimer = setTimeout(() => setRemovePhase('processing'), 800)
     try {
       const url = await removeBackground(file, abortControllerRef.current.signal)
+      clearTimeout(uploadTimer)
+      setRemovePhase('done')
+      removePhaseTimerRef.current = setTimeout(() => setRemovePhase(null), 500)
       // Also store as Blob for re-upload to /api/image-to-3d
       const response = await fetch(url)
       const blob = await response.blob()
@@ -94,6 +109,8 @@ export default function ImageTo3D() {
       setRemovedBgBlob(blob)
       setStep('removed')
     } catch (err) {
+      clearTimeout(uploadTimer)
+      setRemovePhase(null)
       if (err.name === 'AbortError') return
       setError(err.message || 'Something went wrong. Please try again.')
       setStep('idle')
@@ -108,14 +125,22 @@ export default function ImageTo3D() {
     setStep('converting')
     setError('')
     setModel3dUrl(null)
+    clearTimeout(convertPhaseTimerRef.current)
+    setConvertPhase('uploading')
 
     const pngFile = new File([removedBgBlob], 'removed_bg.png', { type: 'image/png' })
 
+    const uploadTimer = setTimeout(() => setConvertPhase('processing'), 800)
     try {
       const url = await convertTo3D(pngFile, abortControllerRef.current.signal)
+      clearTimeout(uploadTimer)
+      setConvertPhase('done')
+      convertPhaseTimerRef.current = setTimeout(() => setConvertPhase(null), 500)
       setModel3dUrl(url)
       setStep('done')
     } catch (err) {
+      clearTimeout(uploadTimer)
+      setConvertPhase(null)
       if (err.name === 'AbortError') return
       setError(err.message || 'Something went wrong. Please try again.')
       setStep('removed') // 回到 removed 狀態，保留去背結果
@@ -158,6 +183,7 @@ export default function ImageTo3D() {
             'Remove Background'
           )}
         </button>
+        <ProgressStatus phase={removePhase} labels={{ uploading: '上傳圖片中...', processing: '移除背景中...' }} />
       </form>
 
       {error && <p className="error-message">{error}</p>}
@@ -199,6 +225,7 @@ export default function ImageTo3D() {
                   'Convert to 3D'
                 )}
               </button>
+              <ProgressStatus phase={convertPhase} labels={{ uploading: '上傳圖片中...', processing: '轉換 3D 中...' }} />
             </div>
           )}
         </div>

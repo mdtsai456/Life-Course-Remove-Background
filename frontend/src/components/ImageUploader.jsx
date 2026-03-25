@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { removeBackground } from '../services/api'
+import ProgressStatus from './ProgressStatus'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+const UPLOAD_PROGRESS_LABELS = { uploading: '上傳圖片中...', processing: '移除背景中...' }
 
 export default function ImageUploader() {
   const [file, setFile] = useState(null)
@@ -10,11 +12,16 @@ export default function ImageUploader() {
   const [resultUrl, setResultUrl] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [phase, setPhase] = useState(null)
 
   const abortControllerRef = useRef(null)
+  const phaseTimerRef = useRef(null)
 
   useEffect(() => {
-    return () => abortControllerRef.current?.abort()
+    return () => {
+      abortControllerRef.current?.abort()
+      clearTimeout(phaseTimerRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -66,11 +73,19 @@ export default function ImageUploader() {
     setLoading(true)
     setError('')
     setResultUrl(null)
+    clearTimeout(phaseTimerRef.current)
+    setPhase('uploading')
 
+    phaseTimerRef.current = setTimeout(() => setPhase('processing'), 800)
     try {
       const url = await removeBackground(file, abortControllerRef.current.signal)
+      clearTimeout(phaseTimerRef.current)
+      setPhase('done')
+      phaseTimerRef.current = setTimeout(() => setPhase(null), 500)
       setResultUrl(url)
     } catch (err) {
+      clearTimeout(phaseTimerRef.current)
+      setPhase(null)
       if (err.name === 'AbortError') return
       setError(err.message || 'Something went wrong. Please try again.')
     } finally {
@@ -109,6 +124,7 @@ export default function ImageUploader() {
             'Remove Background'
           )}
         </button>
+        <ProgressStatus phase={phase} labels={UPLOAD_PROGRESS_LABELS} />
       </form>
 
       {error && <p className="error-message">{error}</p>}

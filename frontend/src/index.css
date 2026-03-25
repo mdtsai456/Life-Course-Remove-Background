@@ -359,3 +359,29 @@ model-viewer {
   border-radius: 8px;
   background: #f8f8f8;
 }
+
+/* ── ProgressStatus ── */
+
+.progress-status {
+  margin-top: 8px;
+}
+
+.progress-bar-track {
+  height: 4px;
+  background: #e5e7eb;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: #2563eb;
+  border-radius: 2px;
+}
+
+.progress-label {
+  font-size: 12px;
+  color: #888;
+  margin-top: 4px;
+}
