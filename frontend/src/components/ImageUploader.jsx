@@ -4,6 +4,7 @@ import ProgressStatus from './ProgressStatus'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+const UPLOAD_PROGRESS_LABELS = { uploading: '上傳圖片中...', processing: '移除背景中...' }
 
 export default function ImageUploader() {
   const [file, setFile] = useState(null)
@@ -123,7 +124,7 @@ export default function ImageUploader() {
             'Remove Background'
           )}
         </button>
-        <ProgressStatus phase={phase} labels={{ uploading: '上傳圖片中...', processing: '移除背景中...' }} />
+        <ProgressStatus phase={phase} labels={UPLOAD_PROGRESS_LABELS} />
       </form>
 
       {error && <p className="error-message">{error}</p>}
