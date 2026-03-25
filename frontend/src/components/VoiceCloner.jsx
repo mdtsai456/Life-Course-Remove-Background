@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { cloneVoice } from '../services/api'
+import ProgressStatus from './ProgressStatus'
 
 // --- Pure helpers (outside component, never recreated) ---
 
@@ -54,6 +55,7 @@ export default function VoiceCloner() {
   const [recordingMimeType, setRecordingMimeType] = useState('')
   const [loading, setLoading]               = useState(false)
   const [error, setError]                   = useState('')
+  const [phase, setPhase]                   = useState(null)
 
   // External resource refs (no re-render on change)
   const mediaRecorderRef = useRef(null)
@@ -62,6 +64,7 @@ export default function VoiceCloner() {
   const timerRef         = useRef(null)
   const disposedRef      = useRef(false)
   const abortControllerRef = useRef(null)
+  const phaseTimerRef = useRef(null)
 
   // Revoke resultUrl on change or unmount
   useEffect(() => {
@@ -75,6 +78,7 @@ export default function VoiceCloner() {
     return () => {
       disposedRef.current = true
       clearInterval(timerRef.current)
+      clearTimeout(phaseTimerRef.current)
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop()
       }
@@ -184,6 +188,8 @@ export default function VoiceCloner() {
     abortControllerRef.current = localController
     setLoading(true)
     setError('')
+    clearTimeout(phaseTimerRef.current)
+    setPhase('uploading')
     if (resultUrl) {
       URL.revokeObjectURL(resultUrl)
       setResultUrl(null)
@@ -192,13 +198,19 @@ export default function VoiceCloner() {
     const ext = recordingMimeType ? mimeTypeToExtension(recordingMimeType) : 'audio'
     const audioFile = new File([audioBlob], `recording.${ext}`, { type: audioBlob.type })
 
+    const uploadTimer = setTimeout(() => setPhase('processing'), 800)
     let localResultUrl = null
     try {
       localResultUrl = await cloneVoice(audioFile, text.trim(), localController.signal)
+      clearTimeout(uploadTimer)
       if (!localController.signal.aborted) {
+        setPhase('done')
+        phaseTimerRef.current = setTimeout(() => setPhase(null), 500)
         setResultUrl(localResultUrl)
       }
     } catch (err) {
+      clearTimeout(uploadTimer)
+      setPhase(null)
       if (err.name === 'AbortError') return
       if (!localController.signal.aborted) {
         setError(err.message || 'Something went wrong. Please try again.')
@@ -287,6 +299,7 @@ export default function VoiceCloner() {
             </span>
           ) : '送出'}
         </button>
+        <ProgressStatus phase={phase} labels={{ uploading: '上傳錄音中...', processing: '克隆聲音中...' }} />
       </form>
 
       {error && <p className="error-message">{error}</p>}
