@@ -75,15 +75,15 @@ export default function ImageUploader() {
     clearTimeout(phaseTimerRef.current)
     setPhase('uploading')
 
-    const uploadTimer = setTimeout(() => setPhase('processing'), 800)
+    phaseTimerRef.current = setTimeout(() => setPhase('processing'), 800)
     try {
       const url = await removeBackground(file, abortControllerRef.current.signal)
-      clearTimeout(uploadTimer)
+      clearTimeout(phaseTimerRef.current)
       setPhase('done')
       phaseTimerRef.current = setTimeout(() => setPhase(null), 500)
       setResultUrl(url)
     } catch (err) {
-      clearTimeout(uploadTimer)
+      clearTimeout(phaseTimerRef.current)
       setPhase(null)
       if (err.name === 'AbortError') return
       setError(err.message || 'Something went wrong. Please try again.')

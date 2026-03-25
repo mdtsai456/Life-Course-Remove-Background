@@ -1,5 +1,5 @@
 export default function ProgressStatus({ phase, labels }) {
-  if (!phase) return null
+  if (!phase || !labels) return null
 
   const widthMap = { uploading: '45%', processing: '90%', done: '100%' }
   const transitionMap = {
