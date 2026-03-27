@@ -87,17 +87,18 @@ export default function ImageUploader({ visible = true }) {
     clearTimeout(phaseTimerRef.current)
     setPhase('uploading')
 
-    phaseTimerRef.current = setTimeout(() => setPhase('processing'), 800)
+    const localPhaseTimer = setTimeout(() => setPhase('processing'), 800)
+    phaseTimerRef.current = localPhaseTimer
     try {
       const url = await removeBackground(file, localController.signal)
-      clearTimeout(phaseTimerRef.current)
+      clearTimeout(localPhaseTimer)
       if (!localController.signal.aborted) {
         setPhase('done')
         phaseTimerRef.current = setTimeout(() => setPhase(null), 500)
         setResultUrl(url)
       }
     } catch (err) {
-      clearTimeout(phaseTimerRef.current)
+      clearTimeout(localPhaseTimer)
       if (err.name === 'AbortError') return
       if (!localController.signal.aborted) {
         setPhase(null)

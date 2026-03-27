@@ -106,7 +106,8 @@ export default function ImageTo3D({ visible = true }) {
     if (!file) return
 
     abortControllerRef.current?.abort()
-    abortControllerRef.current = new AbortController()
+    const localController = new AbortController()
+    abortControllerRef.current = localController
     setStep('removing')
     setError('')
     setRemovedBgUrl(null)
@@ -115,24 +116,26 @@ export default function ImageTo3D({ visible = true }) {
     clearTimeout(removePhaseTimerRef.current)
     setRemovePhase('uploading')
 
-    uploadTimerRef.current = setTimeout(() => setRemovePhase('processing'), 800)
+    const localUploadTimer = setTimeout(() => setRemovePhase('processing'), 800)
+    uploadTimerRef.current = localUploadTimer
     let url
     try {
-      url = await removeBackground(file, abortControllerRef.current.signal)
-      clearTimeout(uploadTimerRef.current)
+      url = await removeBackground(file, localController.signal)
+      clearTimeout(localUploadTimer)
+      if (localController.signal.aborted) return
       setRemovePhase('done')
       removePhaseTimerRef.current = setTimeout(() => setRemovePhase(null), 500)
       // Also store as Blob for re-upload to /api/image-to-3d
-      const response = await fetch(url, { signal: abortControllerRef.current.signal })
+      const response = await fetch(url, { signal: localController.signal })
       const blob = await response.blob()
       setRemovedBgUrl(url)
       setRemovedBgBlob(blob)
       setStep('removed')
     } catch (err) {
-      clearTimeout(uploadTimerRef.current)
-      setRemovePhase(null)
+      clearTimeout(localUploadTimer)
       if (url) URL.revokeObjectURL(url)
-      if (err.name === 'AbortError') return
+      if (err.name === 'AbortError' || localController.signal.aborted) return
+      setRemovePhase(null)
       setError(err.message || 'Something went wrong. Please try again.')
       setStep('idle')
     }
@@ -142,7 +145,8 @@ export default function ImageTo3D({ visible = true }) {
     if (!removedBgBlob) return
 
     abortControllerRef.current?.abort()
-    abortControllerRef.current = new AbortController()
+    const localController = new AbortController()
+    abortControllerRef.current = localController
     setStep('converting')
     setError('')
     setModel3dUrl(null)
@@ -151,20 +155,22 @@ export default function ImageTo3D({ visible = true }) {
 
     const pngFile = new File([removedBgBlob], 'removed_bg.png', { type: 'image/png' })
 
-    uploadTimerRef.current = setTimeout(() => setConvertPhase('processing'), 800)
+    const localUploadTimer = setTimeout(() => setConvertPhase('processing'), 800)
+    uploadTimerRef.current = localUploadTimer
     let url
     try {
-      url = await convertTo3D(pngFile, abortControllerRef.current.signal)
-      clearTimeout(uploadTimerRef.current)
+      url = await convertTo3D(pngFile, localController.signal)
+      clearTimeout(localUploadTimer)
+      if (localController.signal.aborted) return
       setConvertPhase('done')
       convertPhaseTimerRef.current = setTimeout(() => setConvertPhase(null), 500)
       setModel3dUrl(url)
       setStep('done')
     } catch (err) {
-      clearTimeout(uploadTimerRef.current)
-      setConvertPhase(null)
+      clearTimeout(localUploadTimer)
       if (url) URL.revokeObjectURL(url)
-      if (err.name === 'AbortError') return
+      if (err.name === 'AbortError' || localController.signal.aborted) return
+      setConvertPhase(null)
       setError(err.message || 'Something went wrong. Please try again.')
       setStep('removed') // 回到 removed 狀態，保留去背結果
     }
