@@ -69,6 +69,7 @@ export default function ImageUploader() {
     e.preventDefault()
     if (!file) return
 
+    abortControllerRef.current?.abort()
     abortControllerRef.current = new AbortController()
     setLoading(true)
     setError('')
