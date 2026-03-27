@@ -32,9 +32,15 @@ export default function App() {
         </nav>
       </header>
       <main>
-        {activeTab === 'remove-bg' && <ImageUploader />}
-        {activeTab === 'voice-clone' && <VoiceCloner />}
-        {activeTab === 'image-to-3d' && <ImageTo3D />}
+        <div style={{ display: activeTab === 'remove-bg' ? 'block' : 'none' }}>
+          <ImageUploader />
+        </div>
+        <div style={{ display: activeTab === 'voice-clone' ? 'block' : 'none' }}>
+          <VoiceCloner />
+        </div>
+        <div style={{ display: activeTab === 'image-to-3d' ? 'block' : 'none' }}>
+          <ImageTo3D />
+        </div>
       </main>
     </div>
   )
