@@ -133,8 +133,9 @@ export default function ImageTo3D() {
     const pngFile = new File([removedBgBlob], 'removed_bg.png', { type: 'image/png' })
 
     const uploadTimer = setTimeout(() => setConvertPhase('processing'), 800)
+    let url
     try {
-      const url = await convertTo3D(pngFile, abortControllerRef.current.signal)
+      url = await convertTo3D(pngFile, abortControllerRef.current.signal)
       clearTimeout(uploadTimer)
       setConvertPhase('done')
       convertPhaseTimerRef.current = setTimeout(() => setConvertPhase(null), 500)
@@ -143,6 +144,7 @@ export default function ImageTo3D() {
     } catch (err) {
       clearTimeout(uploadTimer)
       setConvertPhase(null)
+      if (url) URL.revokeObjectURL(url)
       if (err.name === 'AbortError') return
       setError(err.message || 'Something went wrong. Please try again.')
       setStep('removed') // 回到 removed 狀態，保留去背結果
