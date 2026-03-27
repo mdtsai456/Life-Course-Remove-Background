@@ -226,7 +226,6 @@ export default function VoiceCloner() {
   }
 
   const isDisabled = !audioBlob || !text.trim() || loading || isRecording || isAcquiringMic
-  const ext = recordingMimeType ? mimeTypeToExtension(recordingMimeType) : 'audio'
 
   return (
     <div className="voice-cloner">
@@ -315,7 +314,7 @@ export default function VoiceCloner() {
           />
           <a
             href={resultUrl}
-            download={`cloned-voice.${ext}`}
+            download="cloned-voice.wav"
             className="download-button download-audio-btn"
           >
             下載音檔

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
+from pydub.exceptions import CouldntDecodeError
 
 from app.main import app
-from app.routes.voice import _detect_audio_type
+from app.routes.voice import AudioConversionError, _convert_to_wav, _detect_audio_type
 
 client = TestClient(app)
 
@@ -17,6 +20,8 @@ WEBM_HEADER = b"\x1a\x45\xdf\xa3" + b"\x00" * 4  # EBML magic + padding to 8 byt
 OGG_HEADER = b"OggS" + b"\x00" * 4
 # MP4: 4 bytes size + "ftyp" at offset 4
 MP4_HEADER = b"\x00\x00\x00\x18" + b"ftyp" + b"isom" + b"\x00" * 4
+
+WAV_STUB = b"RIFF\x00\x00\x00\x00WAVEfmt "
 
 
 def _make_audio(header: bytes, size: int = 1024) -> bytes:
@@ -56,44 +61,114 @@ class TestDetectAudioType:
 
 
 # ===========================================================================
+# _convert_to_wav unit tests
+# ===========================================================================
+class TestConvertToWav:
+    def test_success(self):
+        with patch("app.routes.voice.AudioSegment") as mock_cls:
+            mock_audio = MagicMock()
+            mock_audio.raw_data = b"\x00" * 100
+            mock_cls.from_file.return_value = mock_audio
+
+            def _export_side_effect(buf, format, parameters):
+                buf.write(WAV_STUB)
+
+            mock_audio.export.side_effect = _export_side_effect
+
+            result = _convert_to_wav(b"fake-audio", "webm")
+            assert result == WAV_STUB
+            mock_cls.from_file.assert_called_once()
+
+    def test_decode_error(self):
+        with patch("app.routes.voice.AudioSegment") as mock_cls:
+            mock_cls.from_file.side_effect = CouldntDecodeError("bad file")
+            with pytest.raises(AudioConversionError):
+                _convert_to_wav(b"bad-audio", "webm")
+
+    def test_ffmpeg_not_found(self):
+        with patch("app.routes.voice.AudioSegment") as mock_cls:
+            mock_cls.from_file.side_effect = FileNotFoundError("ffmpeg not found")
+            with pytest.raises(FileNotFoundError):
+                _convert_to_wav(b"some-audio", "webm")
+
+    def test_oversized_pcm(self):
+        with patch("app.routes.voice.AudioSegment") as mock_cls:
+            mock_audio = MagicMock()
+            mock_audio.raw_data = b"\x00" * (200 * 1024 * 1024 + 1)
+            mock_cls.from_file.return_value = mock_audio
+            with pytest.raises(AudioConversionError):
+                _convert_to_wav(b"some-audio", "webm")
+
+
+# ===========================================================================
 # /api/clone-voice endpoint tests
 # ===========================================================================
 class TestCloneVoiceEndpoint:
     # -- success --
     def test_success_webm(self):
         audio = _make_audio(WEBM_HEADER)
-        resp = client.post(
-            "/api/clone-voice",
-            files={"file": ("rec.webm", audio, "audio/webm")},
-            data={"text": "hello"},
-        )
+        with patch("app.routes.voice.AudioSegment") as mock_cls:
+            mock_seg = MagicMock()
+            mock_seg.raw_data = b"\x00" * 100
+            mock_cls.from_file.return_value = mock_seg
+
+            def _export_side_effect(buf, format, parameters):
+                buf.write(WAV_STUB)
+
+            mock_seg.export.side_effect = _export_side_effect
+
+            resp = client.post(
+                "/api/clone-voice",
+                files={"file": ("rec.webm", audio, "audio/webm")},
+                data={"text": "hello"},
+            )
         assert resp.status_code == 200
-        assert resp.headers["content-type"] == "audio/webm"
-        assert resp.headers["content-disposition"] == 'attachment; filename="cloned.webm"'
+        assert resp.headers["content-type"] == "audio/wav"
+        assert resp.headers["content-disposition"] == 'attachment; filename="cloned.wav"'
         assert resp.headers["x-content-type-options"] == "nosniff"
-        assert resp.content == audio
+        assert resp.content == WAV_STUB
 
     def test_success_ogg(self):
         audio = _make_audio(OGG_HEADER)
-        resp = client.post(
-            "/api/clone-voice",
-            files={"file": ("rec.ogg", audio, "audio/ogg")},
-            data={"text": "hello"},
-        )
+        with patch("app.routes.voice.AudioSegment") as mock_cls:
+            mock_seg = MagicMock()
+            mock_seg.raw_data = b"\x00" * 100
+            mock_cls.from_file.return_value = mock_seg
+
+            def _export_side_effect(buf, format, parameters):
+                buf.write(WAV_STUB)
+
+            mock_seg.export.side_effect = _export_side_effect
+
+            resp = client.post(
+                "/api/clone-voice",
+                files={"file": ("rec.ogg", audio, "audio/ogg")},
+                data={"text": "hello"},
+            )
         assert resp.status_code == 200
-        assert resp.headers["content-type"] == "audio/ogg"
-        assert resp.headers["content-disposition"] == 'attachment; filename="cloned.ogg"'
+        assert resp.headers["content-type"] == "audio/wav"
+        assert resp.headers["content-disposition"] == 'attachment; filename="cloned.wav"'
 
     def test_success_mp4(self):
         audio = _make_audio(MP4_HEADER)
-        resp = client.post(
-            "/api/clone-voice",
-            files={"file": ("rec.m4a", audio, "audio/mp4")},
-            data={"text": "hello"},
-        )
+        with patch("app.routes.voice.AudioSegment") as mock_cls:
+            mock_seg = MagicMock()
+            mock_seg.raw_data = b"\x00" * 100
+            mock_cls.from_file.return_value = mock_seg
+
+            def _export_side_effect(buf, format, parameters):
+                buf.write(WAV_STUB)
+
+            mock_seg.export.side_effect = _export_side_effect
+
+            resp = client.post(
+                "/api/clone-voice",
+                files={"file": ("rec.m4a", audio, "audio/mp4")},
+                data={"text": "hello"},
+            )
         assert resp.status_code == 200
-        assert resp.headers["content-type"] == "audio/mp4"
-        assert resp.headers["content-disposition"] == 'attachment; filename="cloned.m4a"'
+        assert resp.headers["content-type"] == "audio/wav"
+        assert resp.headers["content-disposition"] == 'attachment; filename="cloned.wav"'
 
     # -- MIME type validation (415) --
     def test_reject_unsupported_mime_type(self):
@@ -109,11 +184,21 @@ class TestCloneVoiceEndpoint:
     def test_reject_mime_with_codec_suffix(self):
         """audio/webm;codecs=opus should still be accepted (stripped to audio/webm)."""
         audio = _make_audio(WEBM_HEADER)
-        resp = client.post(
-            "/api/clone-voice",
-            files={"file": ("rec.webm", audio, "audio/webm;codecs=opus")},
-            data={"text": "hello"},
-        )
+        with patch("app.routes.voice.AudioSegment") as mock_cls:
+            mock_seg = MagicMock()
+            mock_seg.raw_data = b"\x00" * 100
+            mock_cls.from_file.return_value = mock_seg
+
+            def _export_side_effect(buf, format, parameters):
+                buf.write(WAV_STUB)
+
+            mock_seg.export.side_effect = _export_side_effect
+
+            resp = client.post(
+                "/api/clone-voice",
+                files={"file": ("rec.webm", audio, "audio/webm;codecs=opus")},
+                data={"text": "hello"},
+            )
         assert resp.status_code == 200
 
     # -- text validation (400) --
@@ -166,3 +251,25 @@ class TestCloneVoiceEndpoint:
         )
         assert resp.status_code == 415
         assert "valid audio file" in resp.json()["detail"]
+
+    # -- conversion error paths --
+    def test_conversion_failure_returns_422(self):
+        audio = _make_audio(WEBM_HEADER)
+        with patch("app.routes.voice.AudioSegment") as mock_cls:
+            mock_cls.from_file.side_effect = CouldntDecodeError("bad")
+            resp = client.post(
+                "/api/clone-voice",
+                files={"file": ("rec.webm", audio, "audio/webm")},
+                data={"text": "hello"},
+            )
+        assert resp.status_code == 422
+
+    def test_ffmpeg_missing_returns_503(self):
+        audio = _make_audio(WEBM_HEADER)
+        with patch("app.routes.voice._convert_to_wav", side_effect=FileNotFoundError("ffmpeg")):
+            resp = client.post(
+                "/api/clone-voice",
+                files={"file": ("rec.webm", audio, "audio/webm")},
+                data={"text": "hello"},
+            )
+        assert resp.status_code == 503
