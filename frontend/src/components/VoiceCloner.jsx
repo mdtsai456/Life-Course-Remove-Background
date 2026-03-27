@@ -44,7 +44,7 @@ function mapGetUserMediaError(err) {
 
 // --- Component ---
 
-export default function VoiceCloner() {
+export default function VoiceCloner({ visible = true }) {
   // UI state
   const [isAcquiringMic, setIsAcquiringMic] = useState(false)
   const [isRecording, setIsRecording]       = useState(false)
@@ -65,6 +65,8 @@ export default function VoiceCloner() {
   const disposedRef      = useRef(false)
   const abortControllerRef = useRef(null)
   const phaseTimerRef = useRef(null)
+  const uploadTimerRef = useRef(null)
+  const visibleRef = useRef(visible)
 
   // Revoke resultUrl on change or unmount
   useEffect(() => {
@@ -79,6 +81,7 @@ export default function VoiceCloner() {
       disposedRef.current = true
       clearInterval(timerRef.current)
       clearTimeout(phaseTimerRef.current)
+      clearTimeout(uploadTimerRef.current)
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop()
       }
@@ -87,6 +90,32 @@ export default function VoiceCloner() {
       abortControllerRef.current?.abort()
     }
   }, [])
+
+  // Keep visibleRef in sync so async callbacks can check it
+  useEffect(() => {
+    visibleRef.current = visible
+  }, [visible])
+
+  // Release mic, timers and abort in-flight requests when tab becomes hidden
+  useEffect(() => {
+    if (visible) return
+    clearInterval(timerRef.current)
+    clearTimeout(phaseTimerRef.current)
+    clearTimeout(uploadTimerRef.current)
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    abortControllerRef.current?.abort()
+    setIsRecording(false)
+    setIsAcquiringMic(false)
+    setRecordingSeconds(0)
+    setAudioBlob(null)
+    chunksRef.current = []
+    setLoading(false)
+    setPhase(null)
+  }, [visible])
 
   function stopMicTracks() {
     streamRef.current?.getTracks().forEach(t => t.stop())
@@ -119,7 +148,7 @@ export default function VoiceCloner() {
       return
     }
 
-    if (disposedRef.current) {
+    if (disposedRef.current || !visibleRef.current) {
       stream.getTracks().forEach(t => t.stop())
       return
     }
@@ -144,6 +173,10 @@ export default function VoiceCloner() {
     recorder.onstop = () => {
       // Defer one microtask so any trailing ondataavailable fires first
       Promise.resolve().then(() => {
+        if (disposedRef.current || !visibleRef.current) {
+          chunksRef.current = []
+          return
+        }
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType })
         chunksRef.current = []
         setAudioBlob(blob)
@@ -189,6 +222,7 @@ export default function VoiceCloner() {
     setLoading(true)
     setError('')
     clearTimeout(phaseTimerRef.current)
+    clearTimeout(uploadTimerRef.current)
     setPhase('uploading')
     if (resultUrl) {
       URL.revokeObjectURL(resultUrl)
@@ -198,18 +232,18 @@ export default function VoiceCloner() {
     const ext = recordingMimeType ? mimeTypeToExtension(recordingMimeType) : 'audio'
     const audioFile = new File([audioBlob], `recording.${ext}`, { type: audioBlob.type })
 
-    const uploadTimer = setTimeout(() => setPhase('processing'), 800)
+    uploadTimerRef.current = setTimeout(() => setPhase('processing'), 800)
     let localResultUrl = null
     try {
       localResultUrl = await cloneVoice(audioFile, text.trim(), localController.signal)
-      clearTimeout(uploadTimer)
+      clearTimeout(uploadTimerRef.current)
       if (!localController.signal.aborted) {
         setPhase('done')
         phaseTimerRef.current = setTimeout(() => setPhase(null), 500)
         setResultUrl(localResultUrl)
       }
     } catch (err) {
-      clearTimeout(uploadTimer)
+      clearTimeout(uploadTimerRef.current)
       setPhase(null)
       if (err.name === 'AbortError') return
       if (!localController.signal.aborted) {

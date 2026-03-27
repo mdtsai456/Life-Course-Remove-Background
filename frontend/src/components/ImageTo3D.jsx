@@ -5,7 +5,7 @@ import ProgressStatus from './ProgressStatus'
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 
-export default function ImageTo3D() {
+export default function ImageTo3D({ visible = true }) {
   const [file, setFile] = useState(null)
   const [originalUrl, setOriginalUrl] = useState(null)
   const [removedBgUrl, setRemovedBgUrl] = useState(null)
@@ -19,6 +19,7 @@ export default function ImageTo3D() {
   const abortControllerRef = useRef(null)
   const removePhaseTimerRef = useRef(null)
   const convertPhaseTimerRef = useRef(null)
+  const uploadTimerRef = useRef(null)
 
   // Cleanup on unmount: abort pending requests
   useEffect(() => {
@@ -26,8 +27,26 @@ export default function ImageTo3D() {
       abortControllerRef.current?.abort()
       clearTimeout(removePhaseTimerRef.current)
       clearTimeout(convertPhaseTimerRef.current)
+      clearTimeout(uploadTimerRef.current)
     }
   }, [])
+
+  // Abort in-flight requests and reset loading state when tab becomes hidden
+  useEffect(() => {
+    if (visible) return
+    abortControllerRef.current?.abort()
+    clearTimeout(removePhaseTimerRef.current)
+    clearTimeout(convertPhaseTimerRef.current)
+    clearTimeout(uploadTimerRef.current)
+    setRemovePhase(null)
+    setConvertPhase(null)
+    // Reset step from loading states while preserving completed results
+    setStep(prev => {
+      if (prev === 'removing') return 'idle'
+      if (prev === 'converting') return 'removed'
+      return prev
+    })
+  }, [visible])
 
   // Original image preview URL lifecycle
   useEffect(() => {
@@ -87,7 +106,8 @@ export default function ImageTo3D() {
     if (!file) return
 
     abortControllerRef.current?.abort()
-    abortControllerRef.current = new AbortController()
+    const localController = new AbortController()
+    abortControllerRef.current = localController
     setStep('removing')
     setError('')
     setRemovedBgUrl(null)
@@ -96,22 +116,29 @@ export default function ImageTo3D() {
     clearTimeout(removePhaseTimerRef.current)
     setRemovePhase('uploading')
 
-    const uploadTimer = setTimeout(() => setRemovePhase('processing'), 800)
+    const localUploadTimer = setTimeout(() => setRemovePhase('processing'), 800)
+    uploadTimerRef.current = localUploadTimer
+    let url
     try {
-      const url = await removeBackground(file, abortControllerRef.current.signal)
-      clearTimeout(uploadTimer)
+      url = await removeBackground(file, localController.signal)
+      clearTimeout(localUploadTimer)
+      if (localController.signal.aborted) {
+        if (url) URL.revokeObjectURL(url)
+        return
+      }
       setRemovePhase('done')
       removePhaseTimerRef.current = setTimeout(() => setRemovePhase(null), 500)
       // Also store as Blob for re-upload to /api/image-to-3d
-      const response = await fetch(url)
+      const response = await fetch(url, { signal: localController.signal })
       const blob = await response.blob()
       setRemovedBgUrl(url)
       setRemovedBgBlob(blob)
       setStep('removed')
     } catch (err) {
-      clearTimeout(uploadTimer)
+      clearTimeout(localUploadTimer)
+      if (url) URL.revokeObjectURL(url)
+      if (err.name === 'AbortError' || localController.signal.aborted) return
       setRemovePhase(null)
-      if (err.name === 'AbortError') return
       setError(err.message || 'Something went wrong. Please try again.')
       setStep('idle')
     }
@@ -121,7 +148,8 @@ export default function ImageTo3D() {
     if (!removedBgBlob) return
 
     abortControllerRef.current?.abort()
-    abortControllerRef.current = new AbortController()
+    const localController = new AbortController()
+    abortControllerRef.current = localController
     setStep('converting')
     setError('')
     setModel3dUrl(null)
@@ -130,18 +158,25 @@ export default function ImageTo3D() {
 
     const pngFile = new File([removedBgBlob], 'removed_bg.png', { type: 'image/png' })
 
-    const uploadTimer = setTimeout(() => setConvertPhase('processing'), 800)
+    const localUploadTimer = setTimeout(() => setConvertPhase('processing'), 800)
+    uploadTimerRef.current = localUploadTimer
+    let url
     try {
-      const url = await convertTo3D(pngFile, abortControllerRef.current.signal)
-      clearTimeout(uploadTimer)
+      url = await convertTo3D(pngFile, localController.signal)
+      clearTimeout(localUploadTimer)
+      if (localController.signal.aborted) {
+        if (url) URL.revokeObjectURL(url)
+        return
+      }
       setConvertPhase('done')
       convertPhaseTimerRef.current = setTimeout(() => setConvertPhase(null), 500)
       setModel3dUrl(url)
       setStep('done')
     } catch (err) {
-      clearTimeout(uploadTimer)
+      clearTimeout(localUploadTimer)
+      if (url) URL.revokeObjectURL(url)
+      if (err.name === 'AbortError' || localController.signal.aborted) return
       setConvertPhase(null)
-      if (err.name === 'AbortError') return
       setError(err.message || 'Something went wrong. Please try again.')
       setStep('removed') // 回到 removed 狀態，保留去背結果
     }
