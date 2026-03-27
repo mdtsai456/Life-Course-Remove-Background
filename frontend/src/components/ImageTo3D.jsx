@@ -122,7 +122,10 @@ export default function ImageTo3D({ visible = true }) {
     try {
       url = await removeBackground(file, localController.signal)
       clearTimeout(localUploadTimer)
-      if (localController.signal.aborted) return
+      if (localController.signal.aborted) {
+        if (url) URL.revokeObjectURL(url)
+        return
+      }
       setRemovePhase('done')
       removePhaseTimerRef.current = setTimeout(() => setRemovePhase(null), 500)
       // Also store as Blob for re-upload to /api/image-to-3d
@@ -161,7 +164,10 @@ export default function ImageTo3D({ visible = true }) {
     try {
       url = await convertTo3D(pngFile, localController.signal)
       clearTimeout(localUploadTimer)
-      if (localController.signal.aborted) return
+      if (localController.signal.aborted) {
+        if (url) URL.revokeObjectURL(url)
+        return
+      }
       setConvertPhase('done')
       convertPhaseTimerRef.current = setTimeout(() => setConvertPhase(null), 500)
       setModel3dUrl(url)
