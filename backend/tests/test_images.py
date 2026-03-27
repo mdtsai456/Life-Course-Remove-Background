@@ -40,6 +40,20 @@ class TestModelPreload:
             sys.modules.pop("app.routes.images", None)
 
 
+    def test_returns_503_when_session_not_initialized(self, client):
+        """If rembg_session is missing from app.state, return 503."""
+        saved = client.app.state.rembg_session
+        del client.app.state.rembg_session
+        try:
+            resp = client.post(
+                "/api/remove-background",
+                files={"file": ("test.png", PNG_HEADER, "image/png")},
+            )
+            assert resp.status_code == 503
+        finally:
+            client.app.state.rembg_session = saved
+
+
 class TestRemoveBackground:
     def test_session_passed_to_remove(self, client):
         """remove() must be called with the preloaded session."""

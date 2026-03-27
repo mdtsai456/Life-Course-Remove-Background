@@ -53,9 +53,13 @@ async def remove_background(file: UploadFile, request: Request):
             detail="Unsupported file type. Allowed: png, jpeg, webp.",
         )
 
+    session = getattr(request.app.state, "rembg_session", None)
+    if session is None:
+        logger.error("rembg session not initialized — check app startup")
+        raise HTTPException(status_code=503, detail="Service not ready.")
+
     loop = asyncio.get_running_loop()
     try:
-        session = request.app.state.rembg_session
         result = await loop.run_in_executor(
             None, partial(remove, contents, session=session)
         )
