@@ -70,7 +70,7 @@ class TestConvertToWav:
             mock_audio.raw_data = b"\x00" * 100
             mock_cls.from_file.return_value = mock_audio
 
-            def _export_side_effect(buf, format, parameters):
+            def _export_side_effect(buf, format):
                 buf.write(WAV_STUB)
 
             mock_audio.export.side_effect = _export_side_effect
@@ -82,7 +82,7 @@ class TestConvertToWav:
     def test_decode_error(self):
         with patch("app.routes.voice.AudioSegment") as mock_cls:
             mock_cls.from_file.side_effect = CouldntDecodeError("bad file")
-            with pytest.raises(AudioConversionError):
+            with pytest.raises(AudioConversionError, match="無法解碼音訊檔案"):
                 _convert_to_wav(b"bad-audio", "webm")
 
     def test_ffmpeg_not_found(self):
@@ -94,9 +94,9 @@ class TestConvertToWav:
     def test_oversized_pcm(self):
         with patch("app.routes.voice.AudioSegment") as mock_cls:
             mock_audio = MagicMock()
-            mock_audio.raw_data = b"\x00" * (200 * 1024 * 1024 + 1)
+            mock_audio.raw_data = b"\x00" * (50 * 1024 * 1024 + 1)
             mock_cls.from_file.return_value = mock_audio
-            with pytest.raises(AudioConversionError):
+            with pytest.raises(AudioConversionError, match="音訊解壓後超過大小限制"):
                 _convert_to_wav(b"some-audio", "webm")
 
 
@@ -112,7 +112,7 @@ class TestCloneVoiceEndpoint:
             mock_seg.raw_data = b"\x00" * 100
             mock_cls.from_file.return_value = mock_seg
 
-            def _export_side_effect(buf, format, parameters):
+            def _export_side_effect(buf, format):
                 buf.write(WAV_STUB)
 
             mock_seg.export.side_effect = _export_side_effect
@@ -135,7 +135,7 @@ class TestCloneVoiceEndpoint:
             mock_seg.raw_data = b"\x00" * 100
             mock_cls.from_file.return_value = mock_seg
 
-            def _export_side_effect(buf, format, parameters):
+            def _export_side_effect(buf, format):
                 buf.write(WAV_STUB)
 
             mock_seg.export.side_effect = _export_side_effect
@@ -156,7 +156,7 @@ class TestCloneVoiceEndpoint:
             mock_seg.raw_data = b"\x00" * 100
             mock_cls.from_file.return_value = mock_seg
 
-            def _export_side_effect(buf, format, parameters):
+            def _export_side_effect(buf, format):
                 buf.write(WAV_STUB)
 
             mock_seg.export.side_effect = _export_side_effect
@@ -189,7 +189,7 @@ class TestCloneVoiceEndpoint:
             mock_seg.raw_data = b"\x00" * 100
             mock_cls.from_file.return_value = mock_seg
 
-            def _export_side_effect(buf, format, parameters):
+            def _export_side_effect(buf, format):
                 buf.write(WAV_STUB)
 
             mock_seg.export.side_effect = _export_side_effect
@@ -263,6 +263,36 @@ class TestCloneVoiceEndpoint:
                 data={"text": "hello"},
             )
         assert resp.status_code == 422
+        assert resp.json()["detail"] == "無法解碼音訊檔案。"
+
+    def test_oversized_pcm_returns_422(self):
+        audio = _make_audio(WEBM_HEADER)
+        with patch("app.routes.voice.AudioSegment") as mock_cls:
+            mock_seg = MagicMock()
+            mock_seg.raw_data = b"\x00" * (50 * 1024 * 1024 + 1)
+            mock_cls.from_file.return_value = mock_seg
+            resp = client.post(
+                "/api/clone-voice",
+                files={"file": ("rec.webm", audio, "audio/webm")},
+                data={"text": "hello"},
+            )
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "音訊解壓後超過大小限制。"
+
+    def test_export_failure_returns_422(self):
+        audio = _make_audio(WEBM_HEADER)
+        with patch("app.routes.voice.AudioSegment") as mock_cls:
+            mock_seg = MagicMock()
+            mock_seg.raw_data = b"\x00" * 100
+            mock_cls.from_file.return_value = mock_seg
+            mock_seg.export.side_effect = Exception("encode failed")
+            resp = client.post(
+                "/api/clone-voice",
+                files={"file": ("rec.webm", audio, "audio/webm")},
+                data={"text": "hello"},
+            )
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "音訊編碼失敗。"
 
     def test_ffmpeg_missing_returns_503(self):
         audio = _make_audio(WEBM_HEADER)
@@ -273,3 +303,4 @@ class TestCloneVoiceEndpoint:
                 data={"text": "hello"},
             )
         assert resp.status_code == 503
+        assert resp.json()["detail"] == "音訊轉換服務暫時無法使用。"

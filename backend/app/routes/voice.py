@@ -9,8 +9,7 @@ from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-MAX_PCM_SIZE = 200 * 1024 * 1024  # 200 MB decompressed PCM limit
-ALLOWED_MIME_TYPES = {"audio/webm", "audio/mp4", "audio/ogg"}
+MAX_PCM_SIZE = 50 * 1024 * 1024  # 50 MB decompressed PCM limit
 MIME_TO_FORMAT = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg"}
 
 logger = logging.getLogger(__name__)
@@ -55,7 +54,10 @@ def _convert_to_wav(contents: bytes, fmt: str) -> bytes:
         raise AudioConversionError("音訊解壓後超過大小限制。")
 
     wav_buffer = io.BytesIO()
-    audio.export(wav_buffer, format="wav", parameters=["-codec:a", "pcm_s16le"])
+    try:
+        audio.export(wav_buffer, format="wav")
+    except Exception as exc:
+        raise AudioConversionError("音訊編碼失敗。") from exc
     return wav_buffer.getvalue()
 
 
@@ -77,7 +79,7 @@ def _convert_to_wav(contents: bytes, fmt: str) -> bytes:
 async def clone_voice(file: UploadFile, text: str | None = Form(None)) -> Response:
     # Validate MIME type (strip codec suffix, reject None)
     mime = (file.content_type or "").split(";")[0].strip()
-    if mime not in ALLOWED_MIME_TYPES:
+    if mime not in MIME_TO_FORMAT:
         raise HTTPException(
             status_code=415,
             detail="Unsupported audio type. Allowed: audio/webm, audio/mp4, audio/ogg.",
@@ -112,19 +114,21 @@ async def clone_voice(file: UploadFile, text: str | None = Form(None)) -> Respon
     fmt = MIME_TO_FORMAT[detected]
     try:
         wav_bytes = await anyio.to_thread.run_sync(
-            lambda: _convert_to_wav(contents, fmt)
+            lambda: _convert_to_wav(contents, fmt),
+            abandon_on_cancel=True,
         )
     except AudioConversionError as exc:
         logger.warning("Audio conversion failed: %s", exc)
         raise HTTPException(
             status_code=422,
             detail=str(exc),
-        )
+        ) from None
     except FileNotFoundError:
+        logger.error("FFmpeg binary not found")
         raise HTTPException(
             status_code=503,
             detail="音訊轉換服務暫時無法使用。",
-        )
+        ) from None
 
     # TODO: 替換成真實 Voice Cloning 模型推理
     logger.info(

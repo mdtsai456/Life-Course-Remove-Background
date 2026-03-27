@@ -79,7 +79,7 @@ MediaRecorder API 依瀏覽器輸出不同格式（Chrome → webm/opus，Safari
 
 > *此圖為 directional guidance，供 reviewer 驗證方向，非實作規格。*
 
-```
+```text
 POST /api/clone-voice  (async def, runs in uvicorn event loop)
        │
 [1-5] existing validation steps (415 / 400 / 413)
