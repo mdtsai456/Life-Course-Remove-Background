@@ -97,13 +97,14 @@ export default function ImageTo3D() {
     setRemovePhase('uploading')
 
     const uploadTimer = setTimeout(() => setRemovePhase('processing'), 800)
+    let url
     try {
-      const url = await removeBackground(file, abortControllerRef.current.signal)
+      url = await removeBackground(file, abortControllerRef.current.signal)
       clearTimeout(uploadTimer)
       setRemovePhase('done')
       removePhaseTimerRef.current = setTimeout(() => setRemovePhase(null), 500)
       // Also store as Blob for re-upload to /api/image-to-3d
-      const response = await fetch(url)
+      const response = await fetch(url, { signal: abortControllerRef.current.signal })
       const blob = await response.blob()
       setRemovedBgUrl(url)
       setRemovedBgBlob(blob)
@@ -111,6 +112,7 @@ export default function ImageTo3D() {
     } catch (err) {
       clearTimeout(uploadTimer)
       setRemovePhase(null)
+      if (url) URL.revokeObjectURL(url)
       if (err.name === 'AbortError') return
       setError(err.message || 'Something went wrong. Please try again.')
       setStep('idle')
