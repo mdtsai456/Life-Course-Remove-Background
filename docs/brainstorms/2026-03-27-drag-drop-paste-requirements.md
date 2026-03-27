@@ -37,8 +37,8 @@ topic: drag-drop-paste
 
 ## Deferred to Planning
 
-- [Affects R2][Technical] drag-over 視覺回饋用 CSS class toggle 還是 inline state？
-- [Affects R3][Technical] paste 事件從 `ClipboardEvent.clipboardData.items` 取得 `File` 的相容性確認
+- Affects R2（Technical）drag-over 視覺回饋用 CSS class toggle 還是 inline state？
+- Affects R3（Technical）paste 事件從 `ClipboardEvent.clipboardData.items` 取得 `File` 的相容性確認
 
 ## Next Steps
 

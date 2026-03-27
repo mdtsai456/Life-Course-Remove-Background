@@ -143,8 +143,15 @@ export default function ImageUploader({ visible = true }) {
   return (
     <div
       className={`uploader${isDragOver ? ' drag-over' : ''}`}
-      onDragEnter={(e) => { e.preventDefault(); dragCounterRef.current++; setIsDragOver(true) }}
-      onDragOver={(e) => e.preventDefault()}
+      onDragEnter={(e) => {
+        e.preventDefault()
+        if (!Array.from(e.dataTransfer?.types ?? []).includes('Files')) return
+        dragCounterRef.current++
+        setIsDragOver(true)
+      }}
+      onDragOver={(e) => {
+        if (Array.from(e.dataTransfer?.types ?? []).includes('Files')) e.preventDefault()
+      }}
       onDragLeave={() => { dragCounterRef.current = Math.max(0, dragCounterRef.current - 1); if (dragCounterRef.current === 0) setIsDragOver(false) }}
       onDrop={(e) => { e.preventDefault(); dragCounterRef.current = 0; setIsDragOver(false); const dropped = e.dataTransfer.files[0]; if (dropped) applyFile(dropped) }}
     >
