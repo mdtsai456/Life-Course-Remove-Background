@@ -4,7 +4,7 @@ import asyncio
 import logging
 from functools import partial
 
-from fastapi import APIRouter, HTTPException, Response, UploadFile
+from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
 from rembg import remove
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -26,7 +26,7 @@ def _detect_image_type(contents: bytes) -> str | None:
 
 
 @router.post("/api/remove-background")
-async def remove_background(file: UploadFile):
+async def remove_background(file: UploadFile, request: Request):
     if file.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
             status_code=415,
@@ -53,9 +53,16 @@ async def remove_background(file: UploadFile):
             detail="Unsupported file type. Allowed: png, jpeg, webp.",
         )
 
+    session = getattr(request.app.state, "rembg_session", None)
+    if session is None:
+        logger.error("rembg session not initialized — check app startup")
+        raise HTTPException(status_code=503, detail="Service not ready.")
+
     loop = asyncio.get_running_loop()
     try:
-        result = await loop.run_in_executor(None, partial(remove, contents))
+        result = await loop.run_in_executor(
+            None, partial(remove, contents, session=session)
+        )
     except Exception:
         logger.exception("Background removal failed")
         raise HTTPException(
