@@ -44,7 +44,7 @@ function mapGetUserMediaError(err) {
 
 // --- Component ---
 
-export default function VoiceCloner() {
+export default function VoiceCloner({ visible = true }) {
   // UI state
   const [isAcquiringMic, setIsAcquiringMic] = useState(false)
   const [isRecording, setIsRecording]       = useState(false)
@@ -87,6 +87,21 @@ export default function VoiceCloner() {
       abortControllerRef.current?.abort()
     }
   }, [])
+
+  // Release mic, timers and abort in-flight requests when tab becomes hidden
+  useEffect(() => {
+    if (visible) return
+    clearInterval(timerRef.current)
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    abortControllerRef.current?.abort()
+    setIsRecording(false)
+    setIsAcquiringMic(false)
+    setRecordingSeconds(0)
+  }, [visible])
 
   function stopMicTracks() {
     streamRef.current?.getTracks().forEach(t => t.stop())

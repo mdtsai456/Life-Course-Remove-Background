@@ -36,7 +36,7 @@ export default function App() {
           <ImageUploader />
         </div>
         <div style={{ display: activeTab === 'voice-clone' ? 'block' : 'none' }}>
-          <VoiceCloner />
+          <VoiceCloner visible={activeTab === 'voice-clone'} />
         </div>
         <div style={{ display: activeTab === 'image-to-3d' ? 'block' : 'none' }}>
           <ImageTo3D />

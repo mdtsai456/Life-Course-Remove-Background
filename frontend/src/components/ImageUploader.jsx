@@ -70,7 +70,8 @@ export default function ImageUploader() {
     if (!file) return
 
     abortControllerRef.current?.abort()
-    abortControllerRef.current = new AbortController()
+    const localController = new AbortController()
+    abortControllerRef.current = localController
     setLoading(true)
     setError('')
     setResultUrl(null)
@@ -79,18 +80,24 @@ export default function ImageUploader() {
 
     phaseTimerRef.current = setTimeout(() => setPhase('processing'), 800)
     try {
-      const url = await removeBackground(file, abortControllerRef.current.signal)
+      const url = await removeBackground(file, localController.signal)
       clearTimeout(phaseTimerRef.current)
-      setPhase('done')
-      phaseTimerRef.current = setTimeout(() => setPhase(null), 500)
-      setResultUrl(url)
+      if (!localController.signal.aborted) {
+        setPhase('done')
+        phaseTimerRef.current = setTimeout(() => setPhase(null), 500)
+        setResultUrl(url)
+      }
     } catch (err) {
       clearTimeout(phaseTimerRef.current)
-      setPhase(null)
       if (err.name === 'AbortError') return
-      setError(err.message || 'Something went wrong. Please try again.')
+      if (!localController.signal.aborted) {
+        setPhase(null)
+        setError(err.message || 'Something went wrong. Please try again.')
+      }
     } finally {
-      setLoading(false)
+      if (!localController.signal.aborted) {
+        setLoading(false)
+      }
     }
   }
 
