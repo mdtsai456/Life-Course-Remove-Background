@@ -5,7 +5,7 @@ import ProgressStatus from './ProgressStatus'
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 
-export default function ImageTo3D() {
+export default function ImageTo3D({ visible = true }) {
   const [file, setFile] = useState(null)
   const [originalUrl, setOriginalUrl] = useState(null)
   const [removedBgUrl, setRemovedBgUrl] = useState(null)
@@ -19,6 +19,7 @@ export default function ImageTo3D() {
   const abortControllerRef = useRef(null)
   const removePhaseTimerRef = useRef(null)
   const convertPhaseTimerRef = useRef(null)
+  const uploadTimerRef = useRef(null)
 
   // Cleanup on unmount: abort pending requests
   useEffect(() => {
@@ -26,8 +27,26 @@ export default function ImageTo3D() {
       abortControllerRef.current?.abort()
       clearTimeout(removePhaseTimerRef.current)
       clearTimeout(convertPhaseTimerRef.current)
+      clearTimeout(uploadTimerRef.current)
     }
   }, [])
+
+  // Abort in-flight requests and reset loading state when tab becomes hidden
+  useEffect(() => {
+    if (visible) return
+    abortControllerRef.current?.abort()
+    clearTimeout(removePhaseTimerRef.current)
+    clearTimeout(convertPhaseTimerRef.current)
+    clearTimeout(uploadTimerRef.current)
+    setRemovePhase(null)
+    setConvertPhase(null)
+    // Reset step from loading states while preserving completed results
+    setStep(prev => {
+      if (prev === 'removing') return 'idle'
+      if (prev === 'converting') return 'removed'
+      return prev
+    })
+  }, [visible])
 
   // Original image preview URL lifecycle
   useEffect(() => {
@@ -96,11 +115,11 @@ export default function ImageTo3D() {
     clearTimeout(removePhaseTimerRef.current)
     setRemovePhase('uploading')
 
-    const uploadTimer = setTimeout(() => setRemovePhase('processing'), 800)
+    uploadTimerRef.current = setTimeout(() => setRemovePhase('processing'), 800)
     let url
     try {
       url = await removeBackground(file, abortControllerRef.current.signal)
-      clearTimeout(uploadTimer)
+      clearTimeout(uploadTimerRef.current)
       setRemovePhase('done')
       removePhaseTimerRef.current = setTimeout(() => setRemovePhase(null), 500)
       // Also store as Blob for re-upload to /api/image-to-3d
@@ -110,7 +129,7 @@ export default function ImageTo3D() {
       setRemovedBgBlob(blob)
       setStep('removed')
     } catch (err) {
-      clearTimeout(uploadTimer)
+      clearTimeout(uploadTimerRef.current)
       setRemovePhase(null)
       if (url) URL.revokeObjectURL(url)
       if (err.name === 'AbortError') return
@@ -132,17 +151,17 @@ export default function ImageTo3D() {
 
     const pngFile = new File([removedBgBlob], 'removed_bg.png', { type: 'image/png' })
 
-    const uploadTimer = setTimeout(() => setConvertPhase('processing'), 800)
+    uploadTimerRef.current = setTimeout(() => setConvertPhase('processing'), 800)
     let url
     try {
       url = await convertTo3D(pngFile, abortControllerRef.current.signal)
-      clearTimeout(uploadTimer)
+      clearTimeout(uploadTimerRef.current)
       setConvertPhase('done')
       convertPhaseTimerRef.current = setTimeout(() => setConvertPhase(null), 500)
       setModel3dUrl(url)
       setStep('done')
     } catch (err) {
-      clearTimeout(uploadTimer)
+      clearTimeout(uploadTimerRef.current)
       setConvertPhase(null)
       if (url) URL.revokeObjectURL(url)
       if (err.name === 'AbortError') return

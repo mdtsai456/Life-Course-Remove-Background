@@ -33,13 +33,13 @@ export default function App() {
       </header>
       <main>
         <div style={{ display: activeTab === 'remove-bg' ? 'block' : 'none' }}>
-          <ImageUploader />
+          <ImageUploader visible={activeTab === 'remove-bg'} />
         </div>
         <div style={{ display: activeTab === 'voice-clone' ? 'block' : 'none' }}>
           <VoiceCloner visible={activeTab === 'voice-clone'} />
         </div>
         <div style={{ display: activeTab === 'image-to-3d' ? 'block' : 'none' }}>
-          <ImageTo3D />
+          <ImageTo3D visible={activeTab === 'image-to-3d'} />
         </div>
       </main>
     </div>

@@ -6,7 +6,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 const UPLOAD_PROGRESS_LABELS = { uploading: '上傳圖片中...', processing: '移除背景中...' }
 
-export default function ImageUploader() {
+export default function ImageUploader({ visible = true }) {
   const [file, setFile] = useState(null)
   const [originalUrl, setOriginalUrl] = useState(null)
   const [resultUrl, setResultUrl] = useState(null)
@@ -23,6 +23,15 @@ export default function ImageUploader() {
       clearTimeout(phaseTimerRef.current)
     }
   }, [])
+
+  // Abort in-flight requests and reset loading state when tab becomes hidden
+  useEffect(() => {
+    if (visible) return
+    abortControllerRef.current?.abort()
+    clearTimeout(phaseTimerRef.current)
+    setLoading(false)
+    setPhase(null)
+  }, [visible])
 
   useEffect(() => {
     if (!file) {
