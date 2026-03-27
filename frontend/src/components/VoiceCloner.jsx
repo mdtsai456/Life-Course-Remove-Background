@@ -222,6 +222,7 @@ export default function VoiceCloner({ visible = true }) {
     setLoading(true)
     setError('')
     clearTimeout(phaseTimerRef.current)
+    clearTimeout(uploadTimerRef.current)
     setPhase('uploading')
     if (resultUrl) {
       URL.revokeObjectURL(resultUrl)
