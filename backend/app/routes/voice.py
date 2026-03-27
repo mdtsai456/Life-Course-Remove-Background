@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import io
 import logging
 
+import anyio
 from fastapi import APIRouter, Form, HTTPException, Response, UploadFile
+from pydub import AudioSegment
+from pydub.exceptions import CouldntDecodeError
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-ALLOWED_MIME_TYPES = {"audio/webm", "audio/mp4", "audio/ogg"}
+MAX_PCM_SIZE = 50 * 1024 * 1024  # 50 MB decompressed PCM limit
+MIME_TO_FORMAT = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg"}
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +32,35 @@ def _detect_audio_type(contents: bytes) -> str | None:
     return None
 
 
+class AudioConversionError(Exception):
+    """Domain exception for audio conversion failures."""
+
+
+def _convert_to_wav(contents: bytes, fmt: str) -> bytes:
+    """Convert audio bytes to 16-bit PCM WAV using pydub.
+
+    Raises:
+        AudioConversionError: If decoding fails or decompressed PCM exceeds limit.
+        FileNotFoundError: If FFmpeg is not installed.
+    """
+    try:
+        audio = AudioSegment.from_file(io.BytesIO(contents), format=fmt)
+    except FileNotFoundError:
+        raise  # FFmpeg missing — let caller handle as 503
+    except CouldntDecodeError as exc:
+        raise AudioConversionError("無法解碼音訊檔案。") from exc
+
+    if len(audio.raw_data) > MAX_PCM_SIZE:
+        raise AudioConversionError("音訊解壓後超過大小限制。")
+
+    wav_buffer = io.BytesIO()
+    try:
+        audio.export(wav_buffer, format="wav")
+    except Exception as exc:
+        raise AudioConversionError("音訊編碼失敗。") from exc
+    return wav_buffer.getvalue()
+
+
 @router.post(
     "/api/clone-voice",
     summary="Clone a voice",
@@ -35,15 +69,17 @@ def _detect_audio_type(contents: bytes) -> str | None:
     response_class=Response,
     responses={
         200: {
-            "content": {"audio/*": {"schema": {"type": "string", "format": "binary"}}},
-            "description": "Cloned voice audio",
-        }
+            "content": {"audio/wav": {"schema": {"type": "string", "format": "binary"}}},
+            "description": "Cloned voice audio (WAV)",
+        },
+        422: {"description": "Audio decode failure"},
+        503: {"description": "Audio conversion service unavailable"},
     },
 )
 async def clone_voice(file: UploadFile, text: str | None = Form(None)) -> Response:
     # Validate MIME type (strip codec suffix, reject None)
     mime = (file.content_type or "").split(";")[0].strip()
-    if mime not in ALLOWED_MIME_TYPES:
+    if mime not in MIME_TO_FORMAT:
         raise HTTPException(
             status_code=415,
             detail="Unsupported audio type. Allowed: audio/webm, audio/mp4, audio/ogg.",
@@ -74,15 +110,34 @@ async def clone_voice(file: UploadFile, text: str | None = Form(None)) -> Respon
             detail="File content does not appear to be a valid audio file.",
         )
 
+    # Convert to WAV
+    fmt = MIME_TO_FORMAT[detected]
+    try:
+        wav_bytes = await anyio.to_thread.run_sync(
+            lambda: _convert_to_wav(contents, fmt),
+            abandon_on_cancel=True,
+        )
+    except AudioConversionError as exc:
+        logger.warning("Audio conversion failed: %s", exc)
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from None
+    except FileNotFoundError:
+        logger.error("FFmpeg binary not found")
+        raise HTTPException(
+            status_code=503,
+            detail="音訊轉換服務暫時無法使用。",
+        ) from None
+
     # TODO: 替換成真實 Voice Cloning 模型推理
     logger.info(
-        "Returning mock cloned voice (file size: %d bytes, text length: %d)",
-        len(contents),
+        "Returning mock cloned voice (wav size: %d bytes, text length: %d)",
+        len(wav_bytes),
         len(stripped),
     )
-    ext = {"audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a"}[detected]
     return Response(
-        content=contents,
-        media_type=detected,
-        headers={"Content-Disposition": f"attachment; filename=\"cloned.{ext}\""},
+        content=wav_bytes,
+        media_type="audio/wav",
+        headers={"Content-Disposition": 'attachment; filename="cloned.wav"'},
     )
