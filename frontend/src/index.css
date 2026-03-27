@@ -32,6 +32,18 @@ body {
   font-size: 0.95rem;
 }
 
+.uploader {
+  transition: border-color 0.15s, background-color 0.15s;
+  border: 2px dashed transparent;
+  border-radius: 8px;
+  padding: 0.5rem;
+}
+
+.uploader.drag-over {
+  border-color: #2563eb;
+  background-color: #eff6ff;
+}
+
 .upload-form {
   display: flex;
   align-items: center;

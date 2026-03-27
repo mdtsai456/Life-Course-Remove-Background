@@ -13,9 +13,12 @@ export default function ImageUploader({ visible = true }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [phase, setPhase] = useState(null)
+  const [isDragOver, setIsDragOver] = useState(false)
 
   const abortControllerRef = useRef(null)
   const phaseTimerRef = useRef(null)
+  const dragCounterRef = useRef(0)
+  const applyFileRef = useRef(null)
 
   useEffect(() => {
     return () => {
@@ -31,6 +34,8 @@ export default function ImageUploader({ visible = true }) {
     clearTimeout(phaseTimerRef.current)
     setLoading(false)
     setPhase(null)
+    dragCounterRef.current = 0
+    setIsDragOver(false)
   }, [visible])
 
   useEffect(() => {
@@ -49,8 +54,8 @@ export default function ImageUploader({ visible = true }) {
     }
   }, [resultUrl])
 
-  function handleFileChange(e) {
-    const selected = e.target.files?.[0] || null
+  function applyFile(selected) {
+    if (loading) return
     setError('')
     setResultUrl(null)
 
@@ -73,6 +78,30 @@ export default function ImageUploader({ visible = true }) {
 
     setFile(selected)
   }
+
+  applyFileRef.current = applyFile
+
+  function handleFileChange(e) {
+    applyFile(e.target.files?.[0] ?? null)
+  }
+
+  // Paste listener — only active when this tab is visible
+  useEffect(() => {
+    if (!visible) return
+    function handlePaste(e) {
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of items) {
+        if (item.kind === 'file' && ALLOWED_TYPES.includes(item.type)) {
+          e.preventDefault()
+          applyFileRef.current(item.getAsFile())
+          return
+        }
+      }
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [visible])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -112,7 +141,20 @@ export default function ImageUploader({ visible = true }) {
   }
 
   return (
-    <div className="uploader">
+    <div
+      className={`uploader${isDragOver ? ' drag-over' : ''}`}
+      onDragEnter={(e) => {
+        e.preventDefault()
+        if (!Array.from(e.dataTransfer?.types ?? []).includes('Files')) return
+        dragCounterRef.current++
+        setIsDragOver(true)
+      }}
+      onDragOver={(e) => {
+        if (Array.from(e.dataTransfer?.types ?? []).includes('Files')) e.preventDefault()
+      }}
+      onDragLeave={() => { dragCounterRef.current = Math.max(0, dragCounterRef.current - 1); if (dragCounterRef.current === 0) setIsDragOver(false) }}
+      onDrop={(e) => { e.preventDefault(); dragCounterRef.current = 0; setIsDragOver(false); const dropped = e.dataTransfer.files[0]; if (dropped) applyFile(dropped) }}
+    >
       <form className="upload-form" onSubmit={handleSubmit}>
         <label htmlFor="image-upload" className="file-label">
           <input
