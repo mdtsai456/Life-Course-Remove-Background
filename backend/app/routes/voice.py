@@ -6,6 +6,7 @@ import logging
 import anyio
 from fastapi import APIRouter, Form, HTTPException, Response, UploadFile
 from pydub import AudioSegment
+from pydub.exceptions import CouldntDecodeError
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_PCM_SIZE = 200 * 1024 * 1024  # 200 MB decompressed PCM limit
@@ -47,7 +48,7 @@ def _convert_to_wav(contents: bytes, fmt: str) -> bytes:
         audio = AudioSegment.from_file(io.BytesIO(contents), format=fmt)
     except FileNotFoundError:
         raise  # FFmpeg missing — let caller handle as 503
-    except Exception as exc:
+    except CouldntDecodeError as exc:
         raise AudioConversionError("無法解碼音訊檔案。") from exc
 
     if len(audio.raw_data) > MAX_PCM_SIZE:
