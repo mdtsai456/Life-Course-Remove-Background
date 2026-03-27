@@ -1,3 +1,5 @@
+import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
@@ -9,10 +11,15 @@ from app.routes.images import router as images_router
 from app.routes.threed import router as threed_router
 from app.routes.voice import router as voice_router
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    start = time.monotonic()
     app.state.rembg_session = new_session()
+    elapsed = time.monotonic() - start
+    logger.info("rembg model loaded in %.1fs", elapsed)
     yield
 
 

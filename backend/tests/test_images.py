@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import sys
+from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
 
 
 PNG_HEADER = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
@@ -15,6 +19,26 @@ class TestModelPreload:
         assert hasattr(client.app.state, "rembg_session")
         assert client.app.state.rembg_session is not None
 
+    def test_startup_fails_when_new_session_raises(self):
+        """If new_session() fails, the app should fail to start."""
+        mock_rembg = MagicMock()
+        mock_rembg.new_session = MagicMock(
+            side_effect=RuntimeError("model download failed"),
+        )
+
+        with patch.dict(sys.modules, {"rembg": mock_rembg}):
+            sys.modules.pop("app.main", None)
+            sys.modules.pop("app.routes.images", None)
+
+            from app.main import app
+
+            with pytest.raises(RuntimeError, match="model download failed"):
+                with TestClient(app):
+                    pass
+
+            sys.modules.pop("app.main", None)
+            sys.modules.pop("app.routes.images", None)
+
 
 class TestRemoveBackground:
     def test_session_passed_to_remove(self, client):
@@ -26,9 +50,8 @@ class TestRemoveBackground:
             )
         assert resp.status_code == 200
         mock_remove.assert_called_once()
-        _, kwargs = mock_remove.call_args
-        assert "session" in kwargs
-        assert kwargs["session"] is client.app.state.rembg_session
+        assert "session" in mock_remove.call_args.kwargs
+        assert mock_remove.call_args.kwargs["session"] is client.app.state.rembg_session
 
 
 class TestRemoveBackgroundValidation:
