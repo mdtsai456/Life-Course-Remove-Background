@@ -70,7 +70,7 @@ class TestConvertToWav:
             mock_audio.raw_data = b"\x00" * 100
             mock_cls.from_file.return_value = mock_audio
 
-            def _export_side_effect(buf, format):
+            def _export_side_effect(buf, **_kwargs):
                 buf.write(WAV_STUB)
 
             mock_audio.export.side_effect = _export_side_effect
@@ -112,7 +112,7 @@ class TestCloneVoiceEndpoint:
             mock_seg.raw_data = b"\x00" * 100
             mock_cls.from_file.return_value = mock_seg
 
-            def _export_side_effect(buf, format):
+            def _export_side_effect(buf, **_kwargs):
                 buf.write(WAV_STUB)
 
             mock_seg.export.side_effect = _export_side_effect
@@ -135,7 +135,7 @@ class TestCloneVoiceEndpoint:
             mock_seg.raw_data = b"\x00" * 100
             mock_cls.from_file.return_value = mock_seg
 
-            def _export_side_effect(buf, format):
+            def _export_side_effect(buf, **_kwargs):
                 buf.write(WAV_STUB)
 
             mock_seg.export.side_effect = _export_side_effect
@@ -156,7 +156,7 @@ class TestCloneVoiceEndpoint:
             mock_seg.raw_data = b"\x00" * 100
             mock_cls.from_file.return_value = mock_seg
 
-            def _export_side_effect(buf, format):
+            def _export_side_effect(buf, **_kwargs):
                 buf.write(WAV_STUB)
 
             mock_seg.export.side_effect = _export_side_effect
@@ -189,7 +189,7 @@ class TestCloneVoiceEndpoint:
             mock_seg.raw_data = b"\x00" * 100
             mock_cls.from_file.return_value = mock_seg
 
-            def _export_side_effect(buf, format):
+            def _export_side_effect(buf, **_kwargs):
                 buf.write(WAV_STUB)
 
             mock_seg.export.side_effect = _export_side_effect

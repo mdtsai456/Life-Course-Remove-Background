@@ -10,7 +10,7 @@ origin: docs/brainstorms/2026-03-27-voice-clone-audio-format-requirements.md
 
 ## Overview
 
-後端 `/api/clone-voice` endpoint 在驗證通過後，以 `pydub` 將上傳音檔（webm/mp4/ogg）轉換為 WAV 格式，為後續整合 Coqui TTS XTTS 模型（`speaker_wav` 需要 WAV 路徑）做好準備。前端不做任何改動。
+後端 `/api/clone-voice` endpoint 在驗證通過後，以 `pydub` 將上傳音檔（webm/mp4/ogg）轉換為 WAV 格式，為後續整合 Coqui TTS XTTS 模型（`speaker_wav` 需要 WAV 路徑）做好準備。前端僅調整下載檔名（僅修改 `download` 屬性）。
 
 ## Problem Frame
 
@@ -27,7 +27,7 @@ MediaRecorder API 依瀏覽器輸出不同格式（Chrome → webm/opus，Safari
 
 ## Scope Boundaries
 
-- 前端只修改下載按鈕的 `download` 屬性（hardcode `"cloned-voice.wav"`），其他前端邏輯不動。
+- 前端僅調整下載檔名（僅修改 `download` 屬性，hardcode `"cloned-voice.wav"`），其他前端邏輯不動。
 - 不整合真實 XTTS 模型（另見 `docs/brainstorms/2026-03-25-voice-cloning-real-implementation-requirements.md`）。
 - 不加入「上傳本地音檔」功能。
 - 不更動輸入驗證邏輯或 API 介面。
@@ -90,8 +90,7 @@ POST /api/clone-voice  (async def, runs in uvicorn event loop)
     ┌─────────────────────────────────────────────────┐
     │ _convert_to_wav(contents: bytes) -> bytes        │
     │  AudioSegment.from_file(BytesIO(contents))       │
-    │  .export(buf, format="wav",                      │
-    │          parameters=["-codec:a", "pcm_s16le"])   │
+    │  .export(buf, format="wav")                       │
     │  return buf.getvalue()                           │
     │                                                  │
     │  CouldntDecodeError → raise AudioConversionError │
@@ -107,7 +106,7 @@ POST /api/clone-voice  (async def, runs in uvicorn event loop)
 
 ## Implementation Units
 
-- [ ] **Unit 1: 加入 pydub 依賴**
+- [x] **Unit 1: 加入 pydub 依賴**
 
   **Goal:** 確保 pydub 套件可在後端環境安裝使用。
 
@@ -133,7 +132,7 @@ POST /api/clone-voice  (async def, runs in uvicorn event loop)
 
 ---
 
-- [ ] **Unit 2: 實作 `_convert_to_wav` helper 並整合到 endpoint**
+- [x] **Unit 2: 實作 `_convert_to_wav` helper 並整合到 endpoint**
 
   **Goal:** 在驗證通過後加入音檔 WAV 轉換步驟，mock 改為回傳 WAV 回應。
 
@@ -149,8 +148,8 @@ POST /api/clone-voice  (async def, runs in uvicorn event loop)
   - 新增 `class AudioConversionError(Exception): pass`（module-level，輕量 domain exception）。
   - 新增 `_convert_to_wav(contents: bytes, fmt: str) -> bytes`，接受 `fmt` 參數（來自 `detected` 變數，如 `"webm"`、`"mp4"`、`"ogg"`），位置跟在 `_detect_audio_type` 之後：
     - `AudioSegment.from_file(io.BytesIO(contents), format=fmt)` — 明確傳入格式（BytesIO 無副檔名，FFmpeg 無法靠 filename 猜測；明確比 probing 更快且更可靠）
-    - `.export(wav_buffer, format="wav", parameters=["-codec:a", "pcm_s16le"])`（16-bit signed PCM，iOS Safari 相容）
-    - 解碼後立即檢查 `len(audio.raw_data) > 200 * 1024 * 1024`（200MB 上限），超過 raise `AudioConversionError("音訊解壓後超過大小限制。")`（防記憶體炸彈）
+    - `.export(wav_buffer, format="wav")`（pydub 預設即輸出 16-bit signed PCM）
+    - 解碼後立即檢查 `len(audio.raw_data) > 50 * 1024 * 1024`（50MB 上限，即 `MAX_PCM_SIZE`），超過 raise `AudioConversionError("音訊解壓後超過大小限制。")`（防記憶體炸彈）
     - 回傳 `wav_buffer.getvalue()`（**不用** `read()`；export 後 stream position 在末尾，`read()` 回傳空 bytes）
     - 捕捉 `pydub.exceptions.CouldntDecodeError` → raise `AudioConversionError`
     - 捕捉 `FileNotFoundError` → re-raise（讓上層處理為 503）
@@ -179,7 +178,7 @@ POST /api/clone-voice  (async def, runs in uvicorn event loop)
 
 ---
 
-- [ ] **Unit 3: 更新測試**
+- [x] **Unit 3: 更新測試**
 
   **Goal:** 使現有測試通過新的 WAV 回傳行為，並補充轉換邏輯的 unit tests。
 
@@ -235,7 +234,7 @@ POST /api/clone-voice  (async def, runs in uvicorn event loop)
 
 ---
 
-- [ ] **Unit 4: 修正前端下載副檔名**
+- [x] **Unit 4: 修正前端下載副檔名**
 
   **Goal:** 防止使用者下載到副檔名為 `.webm`/`.m4a` 但實際為 WAV 格式的檔案。
 
@@ -273,7 +272,7 @@ POST /api/clone-voice  (async def, runs in uvicorn event loop)
 
 - **FFmpeg 未安裝**：`FileNotFoundError` → HTTP 503（本計劃已在 Unit 2 明確處理，不再是靜默失敗）。開發環境需手動 `brew install ffmpeg`（macOS）或 `apt-get install -y ffmpeg`（Linux）。**測試不需 FFmpeg**：所有 unit tests 和 integration tests 均 mock pydub，CI 無需安裝 FFmpeg 即可全數通過。
 - **pydub 0.25.1 與 FFmpeg 版本相容性**：pydub 長期未維護（2023 後無更新），但與主流 FFmpeg 版本相容性穩定。若遇問題可降版至 `pydub==0.25.0`。
-- **解壓後 PCM 記憶體炸彈**：10MB 壓縮音檔解壓後無上限，惡意製作的高採樣率多聲道容器可能在 10MB 壓縮內產生數百 MB 至 GB 的 PCM，導致 OOM。Unit 2 需在 `AudioSegment.from_file()` 後立即檢查 `len(audio.raw_data)` 並設上限（建議 200MB），超過時 raise `AudioConversionError`。
+- **解壓後 PCM 記憶體炸彈**：10MB 壓縮音檔解壓後無上限，惡意製作的高採樣率多聲道容器可能在 10MB 壓縮內產生數百 MB 至 GB 的 PCM，導致 OOM。Unit 2 需在 `AudioSegment.from_file()` 後立即檢查 `len(audio.raw_data)` 並設上限（50MB，即 `MAX_PCM_SIZE`），超過時 raise `AudioConversionError`。
 - **FFmpeg CVE 風險**：本計劃接受的三種格式（webm/mp4/ogg）在 FFmpeg 的 demuxer 層均有歷史 CVE 記錄（Matroska、OGG、MP4 parser）。建議部署環境使用 FFmpeg >= 6.0，並在 Dockerfile 建立時固定 base image 版本。這是部署層的 out-of-band 風險，不影響本計劃的實作，記錄供運維參考。
 - **未來 XTTS 整合需要 temp file**：`speaker_wav` 需要檔案路徑。目前 BytesIO 方案在整合時需改為 `tempfile.NamedTemporaryFile(suffix=".wav")` + `try/finally` 清理。屆時測試 mock 策略也需對應更新。
 
