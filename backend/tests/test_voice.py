@@ -5,13 +5,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 from pydub.exceptions import CouldntDecodeError
 
-from app.main import app
 from app.routes.voice import AudioConversionError, _convert_to_wav, _detect_audio_type
-
-client = TestClient(app)
 
 # ---------------------------------------------------------------------------
 # Magic bytes helpers
@@ -105,7 +101,7 @@ class TestConvertToWav:
 # ===========================================================================
 class TestCloneVoiceEndpoint:
     # -- success --
-    def test_success_webm(self):
+    def test_success_webm(self, client):
         audio = _make_audio(WEBM_HEADER)
         with patch("app.routes.voice.AudioSegment") as mock_cls:
             mock_seg = MagicMock()
@@ -128,7 +124,7 @@ class TestCloneVoiceEndpoint:
         assert resp.headers["x-content-type-options"] == "nosniff"
         assert resp.content == WAV_STUB
 
-    def test_success_ogg(self):
+    def test_success_ogg(self, client):
         audio = _make_audio(OGG_HEADER)
         with patch("app.routes.voice.AudioSegment") as mock_cls:
             mock_seg = MagicMock()
@@ -149,7 +145,7 @@ class TestCloneVoiceEndpoint:
         assert resp.headers["content-type"] == "audio/wav"
         assert resp.headers["content-disposition"] == 'attachment; filename="cloned.wav"'
 
-    def test_success_mp4(self):
+    def test_success_mp4(self, client):
         audio = _make_audio(MP4_HEADER)
         with patch("app.routes.voice.AudioSegment") as mock_cls:
             mock_seg = MagicMock()
@@ -171,7 +167,7 @@ class TestCloneVoiceEndpoint:
         assert resp.headers["content-disposition"] == 'attachment; filename="cloned.wav"'
 
     # -- MIME type validation (415) --
-    def test_reject_unsupported_mime_type(self):
+    def test_reject_unsupported_mime_type(self, client):
         audio = _make_audio(WEBM_HEADER)
         resp = client.post(
             "/api/clone-voice",
@@ -181,7 +177,7 @@ class TestCloneVoiceEndpoint:
         assert resp.status_code == 415
         assert "Unsupported audio type" in resp.json()["detail"]
 
-    def test_reject_mime_with_codec_suffix(self):
+    def test_reject_mime_with_codec_suffix(self, client):
         """audio/webm;codecs=opus should still be accepted (stripped to audio/webm)."""
         audio = _make_audio(WEBM_HEADER)
         with patch("app.routes.voice.AudioSegment") as mock_cls:
@@ -202,7 +198,7 @@ class TestCloneVoiceEndpoint:
         assert resp.status_code == 200
 
     # -- text validation (400) --
-    def test_reject_missing_text(self):
+    def test_reject_missing_text(self, client):
         audio = _make_audio(WEBM_HEADER)
         resp = client.post(
             "/api/clone-voice",
@@ -211,7 +207,7 @@ class TestCloneVoiceEndpoint:
         assert resp.status_code == 400
         assert "Text must not be empty" in resp.json()["detail"]
 
-    def test_reject_empty_text(self):
+    def test_reject_empty_text(self, client):
         audio = _make_audio(WEBM_HEADER)
         resp = client.post(
             "/api/clone-voice",
@@ -220,7 +216,7 @@ class TestCloneVoiceEndpoint:
         )
         assert resp.status_code == 400
 
-    def test_reject_whitespace_only_text(self):
+    def test_reject_whitespace_only_text(self, client):
         audio = _make_audio(WEBM_HEADER)
         resp = client.post(
             "/api/clone-voice",
@@ -230,7 +226,7 @@ class TestCloneVoiceEndpoint:
         assert resp.status_code == 400
 
     # -- file size validation (413) --
-    def test_reject_oversized_file(self):
+    def test_reject_oversized_file(self, client):
         big = _make_audio(WEBM_HEADER, size=10 * 1024 * 1024 + 1)
         resp = client.post(
             "/api/clone-voice",
@@ -241,7 +237,7 @@ class TestCloneVoiceEndpoint:
         assert "File too large" in resp.json()["detail"]
 
     # -- magic bytes validation (415) --
-    def test_reject_bad_magic_bytes(self):
+    def test_reject_bad_magic_bytes(self, client):
         """Valid MIME but file content doesn't match any known audio format."""
         fake = b"\x00" * 1024
         resp = client.post(
@@ -253,7 +249,7 @@ class TestCloneVoiceEndpoint:
         assert "valid audio file" in resp.json()["detail"]
 
     # -- conversion error paths --
-    def test_conversion_failure_returns_422(self):
+    def test_conversion_failure_returns_422(self, client):
         audio = _make_audio(WEBM_HEADER)
         with patch("app.routes.voice.AudioSegment") as mock_cls:
             mock_cls.from_file.side_effect = CouldntDecodeError("bad")
@@ -265,7 +261,7 @@ class TestCloneVoiceEndpoint:
         assert resp.status_code == 422
         assert resp.json()["detail"] == "無法解碼音訊檔案。"
 
-    def test_oversized_pcm_returns_422(self):
+    def test_oversized_pcm_returns_422(self, client):
         audio = _make_audio(WEBM_HEADER)
         with patch("app.routes.voice.AudioSegment") as mock_cls:
             mock_seg = MagicMock()
@@ -279,7 +275,7 @@ class TestCloneVoiceEndpoint:
         assert resp.status_code == 422
         assert resp.json()["detail"] == "音訊解壓後超過大小限制。"
 
-    def test_export_failure_returns_422(self):
+    def test_export_failure_returns_422(self, client):
         audio = _make_audio(WEBM_HEADER)
         with patch("app.routes.voice.AudioSegment") as mock_cls:
             mock_seg = MagicMock()
@@ -294,7 +290,7 @@ class TestCloneVoiceEndpoint:
         assert resp.status_code == 422
         assert resp.json()["detail"] == "音訊編碼失敗。"
 
-    def test_ffmpeg_missing_returns_503(self):
+    def test_ffmpeg_missing_returns_503(self, client):
         audio = _make_audio(WEBM_HEADER)
         with patch("app.routes.voice._convert_to_wav", side_effect=FileNotFoundError("ffmpeg")):
             resp = client.post(
