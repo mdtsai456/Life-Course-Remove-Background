@@ -18,6 +18,7 @@ export default function ImageUploader({ visible = true }) {
   const abortControllerRef = useRef(null)
   const phaseTimerRef = useRef(null)
   const dragCounterRef = useRef(0)
+  const applyFileRef = useRef(null)
 
   useEffect(() => {
     return () => {
@@ -54,6 +55,7 @@ export default function ImageUploader({ visible = true }) {
   }, [resultUrl])
 
   function applyFile(selected) {
+    if (loading) return
     setError('')
     setResultUrl(null)
 
@@ -77,6 +79,8 @@ export default function ImageUploader({ visible = true }) {
     setFile(selected)
   }
 
+  applyFileRef.current = applyFile
+
   function handleFileChange(e) {
     applyFile(e.target.files?.[0] ?? null)
   }
@@ -89,7 +93,8 @@ export default function ImageUploader({ visible = true }) {
       if (!items) return
       for (const item of items) {
         if (item.kind === 'file' && ALLOWED_TYPES.includes(item.type)) {
-          applyFile(item.getAsFile())
+          e.preventDefault()
+          applyFileRef.current(item.getAsFile())
           return
         }
       }
@@ -140,8 +145,8 @@ export default function ImageUploader({ visible = true }) {
       className={`uploader${isDragOver ? ' drag-over' : ''}`}
       onDragEnter={(e) => { e.preventDefault(); dragCounterRef.current++; setIsDragOver(true) }}
       onDragOver={(e) => e.preventDefault()}
-      onDragLeave={() => { dragCounterRef.current--; if (dragCounterRef.current === 0) setIsDragOver(false) }}
-      onDrop={(e) => { e.preventDefault(); dragCounterRef.current = 0; setIsDragOver(false); applyFile(e.dataTransfer.files[0] ?? null) }}
+      onDragLeave={() => { dragCounterRef.current = Math.max(0, dragCounterRef.current - 1); if (dragCounterRef.current === 0) setIsDragOver(false) }}
+      onDrop={(e) => { e.preventDefault(); dragCounterRef.current = 0; setIsDragOver(false); const dropped = e.dataTransfer.files[0]; if (dropped) applyFile(dropped) }}
     >
       <form className="upload-form" onSubmit={handleSubmit}>
         <label htmlFor="image-upload" className="file-label">
