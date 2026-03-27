@@ -111,6 +111,8 @@ export default function VoiceCloner({ visible = true }) {
     setIsRecording(false)
     setIsAcquiringMic(false)
     setRecordingSeconds(0)
+    setAudioBlob(null)
+    chunksRef.current = []
     setLoading(false)
     setPhase(null)
   }, [visible])
@@ -171,6 +173,10 @@ export default function VoiceCloner({ visible = true }) {
     recorder.onstop = () => {
       // Defer one microtask so any trailing ondataavailable fires first
       Promise.resolve().then(() => {
+        if (disposedRef.current || !visibleRef.current) {
+          chunksRef.current = []
+          return
+        }
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType })
         chunksRef.current = []
         setAudioBlob(blob)
