@@ -52,7 +52,7 @@ MediaRecorder API 依瀏覽器輸出不同格式（Chrome → webm/opus，Safari
 
 ## Key Technical Decisions
 
-- **In-memory 轉換（不使用 temp file）**：以 `io.BytesIO` 作為 pydub 的輸入與輸出緩衝區，無需 temp file 管理。10MB 上限的壓縮音檔解壓後約 50-100MB，在後端 RAM 可接受範圍內。未來整合 XTTS 時，才需改為 temp file（`speaker_wav` 接受路徑而非 bytes）；此時再加入 `tempfile.NamedTemporaryFile` + `try/finally` 清理。
+- **In-memory 轉換（不使用 temp file）**：以 `io.BytesIO` 作為 pydub 的輸入與輸出緩衝區，無需 temp file 管理。10MB 上限的壓縮音檔解壓後可能達 50MB 以上，因此服務以 `MAX_PCM_SIZE`（50MB）為上限，超過即回傳 422。未來整合 XTTS 時，才需改為 temp file（`speaker_wav` 接受路徑而非 bytes）；此時再加入 `tempfile.NamedTemporaryFile` + `try/finally` 清理。
 - **Mock 改為回傳 WAV**：目前 mock 直接回傳原始音檔。加入轉換後，mock 改為回傳 WAV bytes，`content-type: audio/wav`，`filename: cloned.wav`。這樣可驗證轉換管線正確運作，且更接近最終 XTTS 行為（輸出為 WAV）。
 - **提取 `_convert_to_wav` helper（domain exception 模式）**：helper 不應直接 raise `HTTPException`（FastAPI 框架類別），以免在未來的 CLI 工具或 Celery task 中難以重用。改為定義一個輕量 `AudioConversionError(Exception)` domain exception，由 helper raise；endpoint 捕捉後轉為 `HTTPException`。
 - **pydub 失敗分三類，各自對應不同 HTTP 狀態碼**：
@@ -68,7 +68,7 @@ MediaRecorder API 依瀏覽器輸出不同格式（Chrome → webm/opus，Safari
 ### Resolved During Planning
 
 - **XTTS 輸入格式規格**：`sample_rate=22050`、`output_sample_rate=24000`；內部自動 resample 與轉 mono，只需提供可被 `torchaudio.load()` 讀取的 WAV 即可。不需手動設定 sample rate。
-- **pydub 大檔案記憶體問題**：10MB 上限使壓縮音檔解壓後約 50-100MB，一般後端 RAM 可接受，無需 streaming。
+- **pydub 大檔案記憶體問題**：10MB 壓縮音檔解壓後可能超過 50MB，服務以 `MAX_PCM_SIZE`（50MB）為硬上限，超過即拒絕（422）；50MB 以內在後端 RAM 可接受，無需 streaming。
 
 ### Deferred to Implementation
 
