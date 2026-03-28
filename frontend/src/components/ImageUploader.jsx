@@ -85,6 +85,19 @@ export default function ImageUploader({ visible = true }) {
     applyFile(e.target.files?.[0] ?? null)
   }
 
+  function handleDragLeave() {
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1)
+    if (dragCounterRef.current === 0) setIsDragOver(false)
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    dragCounterRef.current = 0
+    setIsDragOver(false)
+    const dropped = e.dataTransfer.files[0]
+    if (dropped) applyFile(dropped)
+  }
+
   // Paste listener — only active when this tab is visible
   useEffect(() => {
     if (!visible) return
@@ -119,13 +132,15 @@ export default function ImageUploader({ visible = true }) {
     const localPhaseTimer = setTimeout(() => setPhase('processing'), 800)
     phaseTimerRef.current = localPhaseTimer
     try {
-      const url = await removeBackground(file, localController.signal)
+      const { url } = await removeBackground(file, localController.signal)
       clearTimeout(localPhaseTimer)
-      if (!localController.signal.aborted) {
-        setPhase('done')
-        phaseTimerRef.current = setTimeout(() => setPhase(null), 500)
-        setResultUrl(url)
+      if (localController.signal.aborted) {
+        URL.revokeObjectURL(url)
+        return
       }
+      setPhase('done')
+      phaseTimerRef.current = setTimeout(() => setPhase(null), 500)
+      setResultUrl(url)
     } catch (err) {
       clearTimeout(localPhaseTimer)
       if (err.name === 'AbortError') return
@@ -152,8 +167,8 @@ export default function ImageUploader({ visible = true }) {
       onDragOver={(e) => {
         if (Array.from(e.dataTransfer?.types ?? []).includes('Files')) e.preventDefault()
       }}
-      onDragLeave={() => { dragCounterRef.current = Math.max(0, dragCounterRef.current - 1); if (dragCounterRef.current === 0) setIsDragOver(false) }}
-      onDrop={(e) => { e.preventDefault(); dragCounterRef.current = 0; setIsDragOver(false); const dropped = e.dataTransfer.files[0]; if (dropped) applyFile(dropped) }}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       <form className="upload-form" onSubmit={handleSubmit}>
         <label htmlFor="image-upload" className="file-label">

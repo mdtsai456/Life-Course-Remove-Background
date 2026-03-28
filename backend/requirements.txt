@@ -7,3 +7,7 @@ httpx==0.28.1
 pytest==8.3.5
 pytest-asyncio==0.25.3
 pydub==0.25.1
+anyio==4.7.0
+coqui-tts==0.27.5
+torch==2.11.0
+torchaudio==2.11.0

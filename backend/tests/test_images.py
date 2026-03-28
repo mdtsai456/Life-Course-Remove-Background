@@ -26,7 +26,23 @@ class TestModelPreload:
             side_effect=RuntimeError("model download failed"),
         )
 
-        with patch.dict(sys.modules, {"rembg": mock_rembg}):
+        mock_torch = MagicMock(name="torch")
+        mock_torch.cuda.is_available.return_value = False
+
+        mock_tts_api = MagicMock(name="TTS.api")
+        mock_tts_api.TTS = MagicMock(
+            name="TTS_class",
+            return_value=MagicMock(to=MagicMock(return_value=MagicMock())),
+        )
+
+        patches = {
+            "rembg": mock_rembg,
+            "torch": mock_torch,
+            "TTS": MagicMock(name="TTS_module", api=mock_tts_api),
+            "TTS.api": mock_tts_api,
+        }
+
+        with patch.dict(sys.modules, patches):
             sys.modules.pop("app.main", None)
             sys.modules.pop("app.routes.images", None)
 

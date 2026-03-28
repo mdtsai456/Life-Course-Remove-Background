@@ -235,7 +235,7 @@ export default function VoiceCloner({ visible = true }) {
     uploadTimerRef.current = setTimeout(() => setPhase('processing'), 800)
     let localResultUrl = null
     try {
-      localResultUrl = await cloneVoice(audioFile, text.trim(), localController.signal)
+      ;({ url: localResultUrl } = await cloneVoice(audioFile, text.trim(), localController.signal))
       clearTimeout(uploadTimerRef.current)
       if (!localController.signal.aborted) {
         setPhase('done')

@@ -24,7 +24,7 @@ async function postForBlob(url, formData, fallbackMessage, signal) {
   if (blob.size === 0) {
     throw new Error('Received empty response from server.')
   }
-  return URL.createObjectURL(blob)
+  return { url: URL.createObjectURL(blob), blob }
 }
 
 export async function removeBackground(file, signal) {
