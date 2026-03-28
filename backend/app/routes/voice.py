@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import os
+import subprocess
 import tempfile
 
 import anyio
@@ -47,6 +49,48 @@ class VoiceInferenceError(Exception):
     """Domain exception for XTTS v2 inference failures."""
 
 
+def _estimate_pcm_size(contents: bytes, fmt: str) -> int | None:
+    """Run ffprobe to estimate decompressed 16-bit PCM size without decoding.
+
+    Returns estimated byte count, or None if metadata is unavailable.
+    Raises FileNotFoundError if ffprobe binary is missing.
+    """
+    cmd = [
+        "ffprobe", "-hide_banner",
+        "-print_format", "json",
+        "-show_format", "-show_streams",
+        "-f", fmt, "pipe:0",
+    ]
+    try:
+        result = subprocess.run(
+            cmd, input=contents, capture_output=True, timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+
+    try:
+        info = json.loads(result.stdout)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+
+    streams = info.get("streams", [])
+    audio = [s for s in streams if s.get("codec_type") == "audio"]
+    if not audio:
+        return None
+    s = audio[0]
+
+    duration_str = s.get("duration") or info.get("format", {}).get("duration")
+    sample_rate_str = s.get("sample_rate")
+    channels = s.get("channels")
+    if not all([duration_str, sample_rate_str, channels]):
+        return None
+
+    try:
+        return int(float(duration_str) * int(sample_rate_str) * int(channels) * 2)
+    except (ValueError, TypeError):
+        return None
+
+
 def _convert_to_wav(contents: bytes, fmt: str) -> tuple[bytes, float]:
     """Convert audio bytes to 16-bit PCM WAV using pydub.
 
@@ -57,6 +101,10 @@ def _convert_to_wav(contents: bytes, fmt: str) -> tuple[bytes, float]:
         AudioConversionError: If decoding fails or decompressed PCM exceeds limit.
         FileNotFoundError: If FFmpeg is not installed.
     """
+    estimated = _estimate_pcm_size(contents, fmt)
+    if estimated is not None and estimated > MAX_PCM_SIZE:
+        raise AudioConversionError("音訊解壓後超過大小限制。")
+
     try:
         audio = AudioSegment.from_file(io.BytesIO(contents), format=fmt)
     except FileNotFoundError:
@@ -149,13 +197,10 @@ def _run_xtts(tts, wav_bytes: bytes, text: str, language: str) -> bytes:
     },
 )
 async def clone_voice(request: Request, file: UploadFile, text: str | None = Form(None)) -> Response:
-    # Validate MIME type (strip codec suffix, reject None)
-    mime = (file.content_type or "").split(";")[0].strip()
+    # MIME type is informational only; final validation uses magic bytes.
+    mime = (file.content_type or "").split(";")[0].strip().lower()
     if mime not in MIME_TO_FORMAT:
-        raise HTTPException(
-            status_code=415,
-            detail="Unsupported audio type. Allowed: audio/webm, audio/mp4, audio/ogg.",
-        )
+        logger.debug("MIME hint %r not in MIME_TO_FORMAT; will rely on magic bytes", mime)
 
     # Validate text
     stripped = (text or "").strip()
