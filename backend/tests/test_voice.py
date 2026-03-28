@@ -367,13 +367,19 @@ class TestXttsPreload:
 
         with patch.dict(sys.modules, patches):
             sys.modules.pop("app.main", None)
+            sys.modules.pop("app.config", None)
             sys.modules.pop("app.routes.images", None)
+            sys.modules.pop("app.routes.threed", None)
+            sys.modules.pop("app.routes.voice", None)
             from app.main import app
             with pytest.raises(RuntimeError, match="model download failed"):
                 with TestClient(app):
                     pass
             sys.modules.pop("app.main", None)
+            sys.modules.pop("app.config", None)
             sys.modules.pop("app.routes.images", None)
+            sys.modules.pop("app.routes.threed", None)
+            sys.modules.pop("app.routes.voice", None)
 
 
 # ===========================================================================

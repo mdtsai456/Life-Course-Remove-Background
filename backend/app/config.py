@@ -7,4 +7,4 @@ def get_cors_allowed_origins() -> list[str]:
 
 
 def is_docs_enabled() -> bool:
-    return os.getenv("DOCS_ENABLED", "true").lower() in ("true", "1", "yes")
+    return os.getenv("DOCS_ENABLED", "true").strip().lower() in ("true", "1", "yes")
