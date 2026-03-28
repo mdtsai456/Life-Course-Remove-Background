@@ -39,7 +39,7 @@ topic: voice-cloning-real-implementation
 
 ### Resolve Before Planning
 
-（無阻擋項目）
+- （無阻擋項目）
 
 ### Deferred to Planning
 
