@@ -14,6 +14,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+def _cleanup_modules():
+    """Remove cached app modules so the next import gets a fresh copy."""
+    _APP_MODULES = [
+        "app.main",
+        "app.config",
+        "app.routes.images",
+        "app.routes.threed",
+        "app.routes.voice",
+    ]
+    for mod in _APP_MODULES:
+        sys.modules.pop(mod, None)
+
+
 def _make_mock_tts_api():
     """Return (mock_tts_api, mock_tts_instance) for sys.modules patching."""
     mock_tts_instance = MagicMock(name="tts_instance")
@@ -46,11 +59,7 @@ def client():
 
     with patch.dict(sys.modules, patches):
         # Force re-import so the app picks up the mocked modules
-        sys.modules.pop("app.main", None)
-        sys.modules.pop("app.config", None)
-        sys.modules.pop("app.routes.images", None)
-        sys.modules.pop("app.routes.threed", None)
-        sys.modules.pop("app.routes.voice", None)
+        _cleanup_modules()
 
         from app.main import app
 
@@ -58,8 +67,4 @@ def client():
             yield c
 
         # Clean up re-imported modules so next test gets a fresh import
-        sys.modules.pop("app.main", None)
-        sys.modules.pop("app.config", None)
-        sys.modules.pop("app.routes.images", None)
-        sys.modules.pop("app.routes.threed", None)
-        sys.modules.pop("app.routes.voice", None)
+        _cleanup_modules()

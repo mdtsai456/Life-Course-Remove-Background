@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
 
+@contextmanager
 def _make_app(docs_enabled: str):
     """Build an app with DOCS_ENABLED set to *docs_enabled*."""
     mock_rembg = MagicMock()
@@ -57,13 +59,13 @@ class TestDocsEnabled:
         assert resp.status_code == 200
 
     def test_docs_disabled_in_production(self):
-        for c in _make_app("false"):
+        with _make_app("false") as c:
             assert c.get("/docs").status_code == 404
             assert c.get("/redoc").status_code == 404
 
     def test_api_still_works_when_docs_disabled(self):
         png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-        for c in _make_app("false"):
+        with _make_app("false") as c:
             resp = c.post(
                 "/api/image-to-3d",
                 files={"file": ("m.png", png, "image/png")},

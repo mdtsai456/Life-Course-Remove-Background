@@ -110,8 +110,8 @@ def _run_xtts(tts, wav_bytes: bytes, text: str, language: str) -> bytes:
         VoiceInferenceError: On XTTS-specific failures.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
-        speaker_path = f"{tmpdir}/speaker.wav"
-        synth_path = f"{tmpdir}/synth.wav"
+        speaker_path = os.path.join(tmpdir, "speaker.wav")
+        synth_path = os.path.join(tmpdir, "synth.wav")
         with open(speaker_path, "wb") as f:
             f.write(wav_bytes)
         try:

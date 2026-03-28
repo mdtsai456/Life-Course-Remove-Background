@@ -120,24 +120,36 @@ class TestConvertToWav:
 # /api/clone-voice endpoint tests
 # ===========================================================================
 class TestCloneVoiceEndpoint:
+    def _setup_audio_seg_mock(self, mock_cls, duration_ms: int = 5000):
+        mock_seg = MagicMock()
+        mock_seg.raw_data = b"\x00" * 100
+        mock_seg.__len__ = MagicMock(return_value=duration_ms)
+        mock_cls.from_file.return_value = mock_seg
+
+        def _export_side_effect(buf, **_kwargs):
+            buf.write(WAV_STUB)
+
+        mock_seg.export.side_effect = _export_side_effect
+        return mock_seg
+
     # -- success --
-    def test_success_webm(self, client):
-        audio = _make_audio(WEBM_HEADER)
+    @pytest.mark.parametrize(
+        "header, filename, mime",
+        [
+            (WEBM_HEADER, "rec.webm", "audio/webm"),
+            (OGG_HEADER, "rec.ogg", "audio/ogg"),
+            (MP4_HEADER, "rec.m4a", "audio/mp4"),
+        ],
+        ids=["webm", "ogg", "mp4"],
+    )
+    def test_success(self, client, header, filename, mime):
+        audio = _make_audio(header)
         client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
         with patch("app.routes.voice.AudioSegment") as mock_cls:
-            mock_seg = MagicMock()
-            mock_seg.raw_data = b"\x00" * 100
-            mock_seg.__len__ = MagicMock(return_value=5000)  # 5 seconds
-            mock_cls.from_file.return_value = mock_seg
-
-            def _export_side_effect(buf, **_kwargs):
-                buf.write(WAV_STUB)
-
-            mock_seg.export.side_effect = _export_side_effect
-
+            self._setup_audio_seg_mock(mock_cls)
             resp = client.post(
                 "/api/clone-voice",
-                files={"file": ("rec.webm", audio, "audio/webm")},
+                files={"file": (filename, audio, mime)},
                 data={"text": "hello"},
             )
         assert resp.status_code == 200
@@ -148,52 +160,6 @@ class TestCloneVoiceEndpoint:
         assert resp.headers["referrer-policy"] == "strict-origin-when-cross-origin"
         assert resp.headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
         assert resp.content == WAV_STUB
-
-    def test_success_ogg(self, client):
-        audio = _make_audio(OGG_HEADER)
-        client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
-        with patch("app.routes.voice.AudioSegment") as mock_cls:
-            mock_seg = MagicMock()
-            mock_seg.raw_data = b"\x00" * 100
-            mock_seg.__len__ = MagicMock(return_value=5000)  # 5 seconds
-            mock_cls.from_file.return_value = mock_seg
-
-            def _export_side_effect(buf, **_kwargs):
-                buf.write(WAV_STUB)
-
-            mock_seg.export.side_effect = _export_side_effect
-
-            resp = client.post(
-                "/api/clone-voice",
-                files={"file": ("rec.ogg", audio, "audio/ogg")},
-                data={"text": "hello"},
-            )
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "audio/wav"
-        assert resp.headers["content-disposition"] == 'attachment; filename="cloned.wav"'
-
-    def test_success_mp4(self, client):
-        audio = _make_audio(MP4_HEADER)
-        client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
-        with patch("app.routes.voice.AudioSegment") as mock_cls:
-            mock_seg = MagicMock()
-            mock_seg.raw_data = b"\x00" * 100
-            mock_seg.__len__ = MagicMock(return_value=5000)  # 5 seconds
-            mock_cls.from_file.return_value = mock_seg
-
-            def _export_side_effect(buf, **_kwargs):
-                buf.write(WAV_STUB)
-
-            mock_seg.export.side_effect = _export_side_effect
-
-            resp = client.post(
-                "/api/clone-voice",
-                files={"file": ("rec.m4a", audio, "audio/mp4")},
-                data={"text": "hello"},
-            )
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "audio/wav"
-        assert resp.headers["content-disposition"] == 'attachment; filename="cloned.wav"'
 
     # -- MIME type validation (415) --
     def test_reject_unsupported_mime_type(self, client):
@@ -211,16 +177,7 @@ class TestCloneVoiceEndpoint:
         audio = _make_audio(WEBM_HEADER)
         client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
         with patch("app.routes.voice.AudioSegment") as mock_cls:
-            mock_seg = MagicMock()
-            mock_seg.raw_data = b"\x00" * 100
-            mock_seg.__len__ = MagicMock(return_value=5000)  # 5 seconds
-            mock_cls.from_file.return_value = mock_seg
-
-            def _export_side_effect(buf, **_kwargs):
-                buf.write(WAV_STUB)
-
-            mock_seg.export.side_effect = _export_side_effect
-
+            self._setup_audio_seg_mock(mock_cls)
             resp = client.post(
                 "/api/clone-voice",
                 files={"file": ("rec.webm", audio, "audio/webm;codecs=opus")},
