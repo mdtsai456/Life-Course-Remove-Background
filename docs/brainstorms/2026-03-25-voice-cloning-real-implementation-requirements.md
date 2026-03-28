@@ -32,19 +32,21 @@ topic: voice-cloning-real-implementation
 ## Key Decisions
 
 - **自架方案**：不依賴 ElevenLabs 等外部付費 API，選用開源模型。
-- **優先方案**：有 GPU 環境選 Coqui XTTS v2；無 GPU 環境選 OpenVoice V2。
+- **模型選型**：使用 **Coqui XTTS v2**（[coqui-ai/TTS](https://github.com/coqui-ai/TTS)）。部署環境有 NVIDIA GPU。
+- **效能預期**：有 GPU，目標回應時間 ≤15 秒（符合 R4）。
 
 ## Outstanding Questions
 
 ### Resolve Before Planning
 
-- [Affects R1, R4][User decision] 部署環境是否有 NVIDIA GPU？這決定模型選型與效能預期。
+- （無阻擋項目）
 
 ### Deferred to Planning
 
-- [Affects R2][Technical] Coqui XTTS v2 或 OpenVoice V2 如何以 FastAPI lifespan 載入模型（避免每次請求重新載入）？
-- [Affects R4][Needs research] 無 GPU 環境下，哪個模型的 CPU 推理時間最實際？
-- [Affects R2][Technical] 模型檔案體積與下載策略（是否需要 Docker layer 分層或 model registry）？
+- **Affects R2 (Technical)** — Coqui XTTS v2 如何以 FastAPI lifespan 載入模型（避免每次請求重新載入）？
+- **Affects R2 (Technical)** — 模型檔案體積與下載策略（是否需要 Docker layer 分層或 model registry）？
+- **Affects R1 (Technical)** — XTTS v2 推理 API 的輸入格式：音訊樣本長度需求？支援的取樣率？
+  *(Partially answered — see implementation plan: 輸出 24 kHz WAV；輸入自動 resample 至 22050 Hz；最低長度：建議 6 秒，計劃強制 ≥3 秒)*
 
 ## Next Steps
-→ 解決 GPU 環境確認問題後，執行 `/ce:plan`
+→ `/ce:plan` 進行結構化實作規劃
