@@ -43,9 +43,10 @@ topic: voice-cloning-real-implementation
 
 ### Deferred to Planning
 
-- [Affects R2][Technical] Coqui XTTS v2 如何以 FastAPI lifespan 載入模型（避免每次請求重新載入）？
-- [Affects R2][Technical] 模型檔案體積與下載策略（是否需要 Docker layer 分層或 model registry）？
-- [Affects R1][Technical] XTTS v2 推理 API 的輸入格式：音訊樣本長度需求？支援的取樣率？
+- **Affects R2 (Technical)** — Coqui XTTS v2 如何以 FastAPI lifespan 載入模型（避免每次請求重新載入）？
+- **Affects R2 (Technical)** — 模型檔案體積與下載策略（是否需要 Docker layer 分層或 model registry）？
+- **Affects R1 (Technical)** — XTTS v2 推理 API 的輸入格式：音訊樣本長度需求？支援的取樣率？
+  *(Partially answered — see implementation plan: 輸出 24 kHz WAV；輸入自動 resample 至 22050 Hz；最低長度：建議 6 秒，計劃強制 ≥3 秒)*
 
 ## Next Steps
 → `/ce:plan` 進行結構化實作規劃

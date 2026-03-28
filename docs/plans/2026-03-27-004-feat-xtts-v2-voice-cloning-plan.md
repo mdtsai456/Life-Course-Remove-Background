@@ -55,7 +55,7 @@ The `/api/clone-voice` endpoint currently performs input validation (MIME type, 
 
 - XTTS v2 supported languages include `zh-cn` and `en` (17 total)
 - XTTS output is always 24000 Hz WAV; handles input resampling to 22050 Hz internally
-- Speaker WAV minimum recommended: 6 seconds (this plan enforces ≥3 seconds as a practical minimum)
+- Speaker WAV minimum recommended: 6 seconds (this plan enforces ≥3 seconds as a practical minimum; shorter samples still yield usable cloning quality and reduce friction for end users uploading short recordings)
 - Speaker latents (`get_conditioning_latents`) are recomputed per-request (no persistent speaker cache)
 - Model size: ~2.09 GB total (model.pth 1.87 GB + dvae.pth 211 MB + misc)
 - `COQUI_TOS_AGREED=1` env var required to suppress interactive license prompt in headless environments
@@ -97,11 +97,11 @@ The `/api/clone-voice` endpoint currently performs input validation (MIME type, 
 
 ### Deferred to Implementation
 
-- **Docker / deployment strategy**: Not yet decided; Unit 5 is intentionally left for later; dev flow uses first-run model download to `~/.local/share/tts/`
+- **Docker / deployment strategy**: Covered by Unit 4 in this plan; dev flow uses first-run model download to `~/.local/share/tts/`
 - **Exact torch CUDA version**: Use `torch>=2.2.0+cu121` as starting point; verify against actual driver during setup
 - **`espeak-ng` requirement for Chinese**: `zh-cn` may require `apt-get install -y espeak-ng` in deployment env; verify during iteration
 - **VRAM on actual hardware**: RTX 50 series expected; verify OOM behavior on real device
-- **`_convert_to_wav` non-XTTS callers**: Confirm no code outside `voice.py` calls `_convert_to_wav` before changing its return type
+- **`_convert_to_wav` internal usage**: After Unit 1 completes, confirm `_convert_to_wav` is only called from within `voice.py` and is not imported or invoked by any other module.
 
 ## High-Level Technical Design
 
@@ -109,7 +109,7 @@ The `/api/clone-voice` endpoint currently performs input validation (MIME type, 
 
 **Request flow after Unit 1-3 are complete:**
 
-```
+```text
 POST /api/clone-voice (multipart: file + text)
   │
   ├─ [existing] MIME + text + size + magic-bytes validation
@@ -136,7 +136,7 @@ POST /api/clone-voice (multipart: file + text)
 
 **Lifespan (Unit 2):**
 
-```
+```text
 app startup:
   os.environ["COQUI_TOS_AGREED"] = "1"
   device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -161,6 +161,7 @@ app startup:
 - Test: `backend/tests/test_voice.py` (create `TestConvertToWav` class)
 
 **Approach:**
+- Declare module-level constant `MAX_PCM_SIZE = 50 * 1024 * 1024` at the top of `voice.py` (50 MB PCM decompression bomb guard)
 - Create new `class AudioConversionError(Exception)` domain exception in `voice.py`
 - Create new `_convert_to_wav(contents: bytes, fmt: str) -> tuple[bytes, float]` helper function in `voice.py` (function does not exist yet)
 - The function uses `AudioSegment.from_file(io.BytesIO(contents), format=fmt)` to decode audio
@@ -230,7 +231,7 @@ app startup:
 
 **Requirements:** R1, R3, R4, R5
 
-**Dependencies:** Unit 1 (returns path + duration), Unit 2 (model on `app.state`)
+**Dependencies:** Unit 1 (returns (wav_bytes, duration_secs)), Unit 2 (model on `app.state`)
 
 **Files:**
 - Modify: `backend/app/routes/voice.py`
