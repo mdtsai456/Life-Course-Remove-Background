@@ -120,7 +120,8 @@ export default function ImageTo3D({ visible = true }) {
     uploadTimerRef.current = localUploadTimer
     let url
     try {
-      url = await removeBackground(file, localController.signal)
+      const result = await removeBackground(file, localController.signal)
+      url = result.url
       clearTimeout(localUploadTimer)
       if (localController.signal.aborted) {
         if (url) URL.revokeObjectURL(url)
@@ -128,11 +129,8 @@ export default function ImageTo3D({ visible = true }) {
       }
       setRemovePhase('done')
       removePhaseTimerRef.current = setTimeout(() => setRemovePhase(null), 500)
-      // Also store as Blob for re-upload to /api/image-to-3d
-      const response = await fetch(url, { signal: localController.signal })
-      const blob = await response.blob()
       setRemovedBgUrl(url)
-      setRemovedBgBlob(blob)
+      setRemovedBgBlob(result.blob)
       setStep('removed')
     } catch (err) {
       clearTimeout(localUploadTimer)
@@ -162,7 +160,7 @@ export default function ImageTo3D({ visible = true }) {
     uploadTimerRef.current = localUploadTimer
     let url
     try {
-      url = await convertTo3D(pngFile, localController.signal)
+      ;({ url } = await convertTo3D(pngFile, localController.signal))
       clearTimeout(localUploadTimer)
       if (localController.signal.aborted) {
         if (url) URL.revokeObjectURL(url)
@@ -269,12 +267,10 @@ export default function ImageTo3D({ visible = true }) {
       {show3dResult && model3dUrl && (
         <div className="preview-card model-viewer-card">
           <h3 className="preview-title">3D Model</h3>
-          {/* eslint-disable-next-line react/no-unknown-property */}
           <model-viewer
             src={model3dUrl}
             auto-rotate
             camera-controls
-            className="model-viewer"
           />
           <a
             href={model3dUrl}
