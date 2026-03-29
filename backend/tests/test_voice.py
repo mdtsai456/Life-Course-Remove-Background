@@ -11,9 +11,12 @@ import pytest
 from fastapi.testclient import TestClient
 from pydub.exceptions import CouldntDecodeError
 
+from tests.conftest import _cleanup_modules, _make_standard_patches
+
+from app.constants import MAX_FILE_SIZE, MAX_PCM_SIZE
 from app.routes.voice import (
-    MAX_PCM_SIZE,
     AudioConversionError,
+    NoOutputError,
     VoiceInferenceError,
     _convert_to_wav,
     _detect_audio_type,
@@ -44,6 +47,7 @@ def _make_synth_side_effect(wav_bytes: bytes):
         with open(file_path, "wb") as f:
             f.write(wav_bytes)
     return _side_effect
+
 
 
 # ===========================================================================
@@ -89,47 +93,41 @@ def _ffprobe_json(streams, fmt=None):
 
 
 class TestEstimatePcmSize:
-    @patch("app.routes.voice.subprocess.run")
-    def test_returns_estimated_size(self, mock_run):
-        mock_run.return_value = _ffprobe_json([
+    def test_returns_estimated_size(self, mock_ffprobe):
+        mock_ffprobe.return_value = _ffprobe_json([
             {"codec_type": "audio", "duration": "10.0",
              "sample_rate": "48000", "channels": 2},
         ])
         assert _estimate_pcm_size(b"data", "webm") == 10 * 48000 * 2 * 2
 
-    @patch("app.routes.voice.subprocess.run")
-    def test_uses_format_duration_fallback(self, mock_run):
-        mock_run.return_value = _ffprobe_json(
+    def test_uses_format_duration_fallback(self, mock_ffprobe):
+        mock_ffprobe.return_value = _ffprobe_json(
             [{"codec_type": "audio", "sample_rate": "44100", "channels": 1}],
             fmt={"duration": "5.0"},
         )
         assert _estimate_pcm_size(b"data", "ogg") == int(5.0 * 44100 * 1 * 2)
 
-    @patch("app.routes.voice.subprocess.run")
-    def test_returns_none_on_no_audio_stream(self, mock_run):
-        mock_run.return_value = _ffprobe_json([{"codec_type": "video"}])
+    def test_returns_none_on_no_audio_stream(self, mock_ffprobe):
+        mock_ffprobe.return_value = _ffprobe_json([{"codec_type": "video"}])
         assert _estimate_pcm_size(b"data", "webm") is None
 
-    @patch("app.routes.voice.subprocess.run")
-    def test_returns_none_on_invalid_json(self, mock_run):
-        mock_run.return_value = MagicMock(stdout=b"not json")
+    def test_returns_none_on_invalid_json(self, mock_ffprobe):
+        mock_ffprobe.return_value = MagicMock(stdout=b"not json")
         assert _estimate_pcm_size(b"data", "webm") is None
 
-    @patch("app.routes.voice.subprocess.run")
-    def test_returns_none_on_missing_metadata(self, mock_run):
-        mock_run.return_value = _ffprobe_json([
+    def test_returns_none_on_missing_metadata(self, mock_ffprobe):
+        mock_ffprobe.return_value = _ffprobe_json([
             {"codec_type": "audio", "duration": "10.0", "channels": 2},
         ])
         assert _estimate_pcm_size(b"data", "webm") is None
 
-    @patch("app.routes.voice.subprocess.run", side_effect=FileNotFoundError("ffprobe"))
-    def test_ffprobe_not_found_raises(self, _mock_run):
+    def test_ffprobe_not_found_raises(self, mock_ffprobe):
+        mock_ffprobe.side_effect = FileNotFoundError("ffprobe")
         with pytest.raises(FileNotFoundError):
             _estimate_pcm_size(b"data", "webm")
 
-    @patch("app.routes.voice.subprocess.run",
-           side_effect=subprocess.TimeoutExpired(cmd="ffprobe", timeout=10))
-    def test_timeout_returns_none(self, _mock_run):
+    def test_timeout_returns_none(self, mock_ffprobe):
+        mock_ffprobe.side_effect = subprocess.TimeoutExpired(cmd="ffprobe", timeout=10)
         assert _estimate_pcm_size(b"data", "webm") is None
 
 
@@ -173,7 +171,7 @@ class TestConvertToWav:
     def test_oversized_pcm(self, _mock_estimate):
         with patch("app.routes.voice.AudioSegment") as mock_cls:
             mock_audio = MagicMock()
-            mock_audio.raw_data = b"\x00" * (50 * 1024 * 1024 + 1)
+            mock_audio.raw_data = b"\x00" * (MAX_PCM_SIZE + 1)
             mock_cls.from_file.return_value = mock_audio
             with pytest.raises(AudioConversionError, match="音訊解壓後超過大小限制"):
                 _convert_to_wav(b"some-audio", "webm")
@@ -195,18 +193,6 @@ class TestConvertToWav:
 # /api/clone-voice endpoint tests
 # ===========================================================================
 class TestCloneVoiceEndpoint:
-    def _setup_audio_seg_mock(self, mock_cls, duration_ms: int = 5000):
-        mock_seg = MagicMock()
-        mock_seg.raw_data = b"\x00" * 100
-        mock_seg.__len__ = MagicMock(return_value=duration_ms)
-        mock_cls.from_file.return_value = mock_seg
-
-        def _export_side_effect(buf, **_kwargs):
-            buf.write(WAV_STUB)
-
-        mock_seg.export.side_effect = _export_side_effect
-        return mock_seg
-
     # -- success --
     @pytest.mark.parametrize(
         "header, filename, mime",
@@ -217,17 +203,15 @@ class TestCloneVoiceEndpoint:
         ],
         ids=["webm", "ogg", "mp4"],
     )
-    def test_success(self, client, header, filename, mime):
+    def test_success(self, client, voice_mocks, header, filename, mime):
         audio = _make_audio(header)
         client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            self._setup_audio_seg_mock(mock_cls)
-            resp = client.post(
-                "/api/clone-voice",
-                files={"file": (filename, audio, mime)},
-                data={"text": "hello"},
-            )
+        voice_mocks.setup()
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": (filename, audio, mime)},
+            data={"text": "hello"},
+        )
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "audio/wav"
         assert resp.headers["content-disposition"] == 'attachment; filename="cloned.wav"'
@@ -238,46 +222,40 @@ class TestCloneVoiceEndpoint:
         assert resp.content == WAV_STUB
 
     # -- MIME type is informational; magic bytes decide acceptance --
-    def test_accept_mismatched_mime_with_valid_magic(self, client):
+    def test_accept_mismatched_mime_with_valid_magic(self, client, voice_mocks):
         """Mismatched MIME (audio/wav) but valid WebM magic bytes → accepted."""
         audio = _make_audio(WEBM_HEADER)
         client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            self._setup_audio_seg_mock(mock_cls)
-            resp = client.post(
-                "/api/clone-voice",
-                files={"file": ("rec.wav", audio, "audio/wav")},
-                data={"text": "hello"},
-            )
+        voice_mocks.setup()
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.wav", audio, "audio/wav")},
+            data={"text": "hello"},
+        )
         assert resp.status_code == 200
 
-    def test_accept_octet_stream_with_valid_magic(self, client):
+    def test_accept_octet_stream_with_valid_magic(self, client, voice_mocks):
         """application/octet-stream with valid OGG magic bytes → accepted."""
         audio = _make_audio(OGG_HEADER)
         client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            self._setup_audio_seg_mock(mock_cls)
-            resp = client.post(
-                "/api/clone-voice",
-                files={"file": ("rec.ogg", audio, "application/octet-stream")},
-                data={"text": "hello"},
-            )
+        voice_mocks.setup()
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.ogg", audio, "application/octet-stream")},
+            data={"text": "hello"},
+        )
         assert resp.status_code == 200
 
-    def test_reject_mime_with_codec_suffix(self, client):
+    def test_reject_mime_with_codec_suffix(self, client, voice_mocks):
         """audio/webm;codecs=opus should still be accepted (stripped to audio/webm)."""
         audio = _make_audio(WEBM_HEADER)
         client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            self._setup_audio_seg_mock(mock_cls)
-            resp = client.post(
-                "/api/clone-voice",
-                files={"file": ("rec.webm", audio, "audio/webm;codecs=opus")},
-                data={"text": "hello"},
-            )
+        voice_mocks.setup()
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.webm", audio, "audio/webm;codecs=opus")},
+            data={"text": "hello"},
+        )
         assert resp.status_code == 200
 
     # -- text validation (400) --
@@ -288,7 +266,7 @@ class TestCloneVoiceEndpoint:
             files={"file": ("rec.webm", audio, "audio/webm")},
         )
         assert resp.status_code == 400
-        assert "Text must not be empty" in resp.json()["detail"]
+        assert "文字不得為空" in resp.json()["detail"]
 
     def test_reject_empty_text(self, client):
         audio = _make_audio(WEBM_HEADER)
@@ -310,14 +288,26 @@ class TestCloneVoiceEndpoint:
 
     # -- file size validation (413) --
     def test_reject_oversized_file(self, client):
-        big = _make_audio(WEBM_HEADER, size=10 * 1024 * 1024 + 1)
+        big = _make_audio(WEBM_HEADER, size=MAX_FILE_SIZE + 1)
         resp = client.post(
             "/api/clone-voice",
             files={"file": ("rec.webm", big, "audio/webm")},
             data={"text": "hello"},
         )
         assert resp.status_code == 413
-        assert "File too large" in resp.json()["detail"]
+        assert "檔案過大" in resp.json()["detail"]
+
+    def test_accept_file_exactly_10mb(self, client, voice_mocks):
+        """File exactly 10 MB → should pass size validation."""
+        audio = _make_audio(WEBM_HEADER, size=MAX_FILE_SIZE)
+        client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
+        voice_mocks.setup()
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.webm", audio, "audio/webm")},
+            data={"text": "hello"},
+        )
+        assert resp.status_code == 200
 
     # -- magic bytes validation (415) --
     def test_reject_bad_magic_bytes(self, client):
@@ -329,50 +319,44 @@ class TestCloneVoiceEndpoint:
             data={"text": "hello"},
         )
         assert resp.status_code == 415
-        assert "valid audio file" in resp.json()["detail"]
+        assert "有效的音訊格式" in resp.json()["detail"]
 
     # -- conversion error paths --
-    def test_conversion_failure_returns_422(self, client):
+    def test_conversion_failure_returns_422(self, client, voice_mocks):
         audio = _make_audio(WEBM_HEADER)
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            mock_cls.from_file.side_effect = CouldntDecodeError("bad")
-            resp = client.post(
-                "/api/clone-voice",
-                files={"file": ("rec.webm", audio, "audio/webm")},
-                data={"text": "hello"},
-            )
+        voice_mocks.audio_seg_cls.from_file.side_effect = CouldntDecodeError("bad")
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.webm", audio, "audio/webm")},
+            data={"text": "hello"},
+        )
         assert resp.status_code == 422
         assert resp.json()["detail"] == "無法解碼音訊檔案。"
 
-    def test_oversized_pcm_returns_422(self, client):
+    def test_oversized_pcm_returns_422(self, client, voice_mocks):
         audio = _make_audio(WEBM_HEADER)
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            mock_seg = MagicMock()
-            mock_seg.raw_data = b"\x00" * (50 * 1024 * 1024 + 1)
-            mock_cls.from_file.return_value = mock_seg
-            resp = client.post(
-                "/api/clone-voice",
-                files={"file": ("rec.webm", audio, "audio/webm")},
-                data={"text": "hello"},
-            )
+        mock_seg = MagicMock()
+        mock_seg.raw_data = b"\x00" * (MAX_PCM_SIZE + 1)
+        voice_mocks.audio_seg_cls.from_file.return_value = mock_seg
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.webm", audio, "audio/webm")},
+            data={"text": "hello"},
+        )
         assert resp.status_code == 422
         assert resp.json()["detail"] == "音訊解壓後超過大小限制。"
 
-    def test_export_failure_returns_422(self, client):
+    def test_export_failure_returns_422(self, client, voice_mocks):
         audio = _make_audio(WEBM_HEADER)
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            mock_seg = MagicMock()
-            mock_seg.raw_data = b"\x00" * 100
-            mock_cls.from_file.return_value = mock_seg
-            mock_seg.export.side_effect = Exception("encode failed")
-            resp = client.post(
-                "/api/clone-voice",
-                files={"file": ("rec.webm", audio, "audio/webm")},
-                data={"text": "hello"},
-            )
+        mock_seg = MagicMock()
+        mock_seg.raw_data = b"\x00" * 100
+        voice_mocks.audio_seg_cls.from_file.return_value = mock_seg
+        mock_seg.export.side_effect = Exception("encode failed")
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.webm", audio, "audio/webm")},
+            data={"text": "hello"},
+        )
         assert resp.status_code == 422
         assert resp.json()["detail"] == "音訊編碼失敗。"
 
@@ -402,6 +386,11 @@ class TestXttsPreload:
         assert hasattr(client.app.state, "xtts_lock")
         assert isinstance(client.app.state.xtts_lock, asyncio.Lock)
 
+    def test_semaphore_on_app_state(self, client):
+        """After startup, app.state.xtts_semaphore should be an asyncio.Semaphore."""
+        assert hasattr(client.app.state, "xtts_semaphore")
+        assert isinstance(client.app.state.xtts_semaphore, asyncio.Semaphore)
+
     def test_startup_fails_when_tts_raises(self):
         """If TTS() fails at startup, the app should fail to start."""
         mock_rembg = MagicMock()
@@ -413,28 +402,15 @@ class TestXttsPreload:
         mock_tts_api = MagicMock()
         mock_tts_api.TTS = mock_tts_cls
 
-        patches = {
-            "rembg": mock_rembg,
-            "torch": mock_torch,
-            "TTS": MagicMock(api=mock_tts_api),
-            "TTS.api": mock_tts_api,
-        }
+        patches = _make_standard_patches(mock_rembg, mock_torch, mock_tts_api)
 
         with patch.dict(sys.modules, patches):
-            sys.modules.pop("app.main", None)
-            sys.modules.pop("app.config", None)
-            sys.modules.pop("app.routes.images", None)
-            sys.modules.pop("app.routes.threed", None)
-            sys.modules.pop("app.routes.voice", None)
+            _cleanup_modules()
             from app.main import app
             with pytest.raises(RuntimeError, match="model download failed"):
                 with TestClient(app):
                     pass
-            sys.modules.pop("app.main", None)
-            sys.modules.pop("app.config", None)
-            sys.modules.pop("app.routes.images", None)
-            sys.modules.pop("app.routes.threed", None)
-            sys.modules.pop("app.routes.voice", None)
+            _cleanup_modules()
 
 
 # ===========================================================================
@@ -480,10 +456,10 @@ class TestDetectLanguage:
 # ===========================================================================
 class TestRunXtts:
     def test_no_output_file_raises_voice_inference_error(self):
-        """tts_to_file succeeds but writes nothing → VoiceInferenceError('no_output')."""
+        """tts_to_file succeeds but writes nothing → NoOutputError."""
         mock_tts = MagicMock()
         mock_tts.tts_to_file.return_value = None  # no-op, doesn't write file
-        with pytest.raises(VoiceInferenceError, match="no_output"):
+        with pytest.raises(NoOutputError):
             _run_xtts(mock_tts, b"fake-wav", "hello", "en")
 
 
@@ -491,31 +467,46 @@ class TestRunXtts:
 # XTTS v2 inference endpoint tests (Unit 3)
 # ===========================================================================
 class TestXttsEndpoint:
-    def _setup_audio_seg_mock(self, mock_cls, duration_ms: int = 5000):
-        mock_seg = MagicMock()
-        mock_seg.raw_data = b"\x00" * 100
-        mock_seg.__len__ = MagicMock(return_value=duration_ms)
-        mock_cls.from_file.return_value = mock_seg
-
-        def _export_side_effect(buf, **_kwargs):
-            buf.write(WAV_STUB)
-
-        mock_seg.export.side_effect = _export_side_effect
-        return mock_seg
-
-    def test_audio_too_short_returns_400(self, client):
-        """Duration < 3s → 400."""
+    def test_queue_full_returns_503(self, client, voice_mocks):
+        """Semaphore fully acquired → 503."""
         audio = _make_audio(WEBM_HEADER)
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            self._setup_audio_seg_mock(mock_cls, duration_ms=2000)
+        original = client.app.state.xtts_semaphore
+        client.app.state.xtts_semaphore = asyncio.Semaphore(0)
+        try:
+            voice_mocks.setup()
             resp = client.post(
                 "/api/clone-voice",
                 files={"file": ("rec.webm", audio, "audio/webm")},
                 data={"text": "hello"},
             )
+            assert resp.status_code == 503
+            assert "忙碌中" in resp.json()["detail"]
+        finally:
+            client.app.state.xtts_semaphore = original
+
+    def test_audio_too_short_returns_400(self, client, voice_mocks):
+        """Duration < 3s → 400."""
+        audio = _make_audio(WEBM_HEADER)
+        voice_mocks.setup(duration_ms=2000)
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.webm", audio, "audio/webm")},
+            data={"text": "hello"},
+        )
         assert resp.status_code == 400
         assert resp.json()["detail"] == "音訊樣本太短，至少需要 3 秒。"
+
+    def test_accept_audio_exactly_3s(self, client, voice_mocks):
+        """Duration exactly 3.0s → should pass duration validation."""
+        audio = _make_audio(WEBM_HEADER)
+        client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
+        voice_mocks.setup(duration_ms=3000)
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.webm", audio, "audio/webm")},
+            data={"text": "hello"},
+        )
+        assert resp.status_code == 200
 
     def test_text_too_long_returns_400(self, client):
         """Text > 500 chars → 400 (rejected before audio conversion)."""
@@ -528,57 +519,79 @@ class TestXttsEndpoint:
         assert resp.status_code == 400
         assert resp.json()["detail"] == "文字不得超過 500 個字元。"
 
-    def test_model_not_loaded_returns_503(self, client):
+    def test_accept_text_exactly_500_chars(self, client, voice_mocks):
+        """Text exactly 500 chars → should pass validation."""
+        audio = _make_audio(WEBM_HEADER)
+        client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
+        voice_mocks.setup()
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.webm", audio, "audio/webm")},
+            data={"text": "a" * 500},
+        )
+        assert resp.status_code == 200
+
+    def test_model_not_loaded_returns_503(self, client, voice_mocks):
         """tts_model = None → 503."""
         audio = _make_audio(WEBM_HEADER)
         saved = client.app.state.tts_model
         client.app.state.tts_model = None
         try:
-            with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-                 patch("app.routes.voice.AudioSegment") as mock_cls:
-                self._setup_audio_seg_mock(mock_cls, duration_ms=5000)
-                resp = client.post(
-                    "/api/clone-voice",
-                    files={"file": ("rec.webm", audio, "audio/webm")},
-                    data={"text": "hello"},
-                )
+            voice_mocks.setup(duration_ms=5000)
+            resp = client.post(
+                "/api/clone-voice",
+                files={"file": ("rec.webm", audio, "audio/webm")},
+                data={"text": "hello"},
+            )
         finally:
             client.app.state.tts_model = saved
         assert resp.status_code == 503
         assert resp.json()["detail"] == "語音克隆服務尚未就緒。"
 
-    def test_successful_inference_returns_wav(self, client):
+    def test_successful_inference_returns_wav(self, client, voice_mocks):
         """Happy path: 200 with synthesised WAV content."""
         audio = _make_audio(WEBM_HEADER)
         client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            self._setup_audio_seg_mock(mock_cls, duration_ms=5000)
-            resp = client.post(
-                "/api/clone-voice",
-                files={"file": ("rec.webm", audio, "audio/webm")},
-                data={"text": "hello"},
-            )
+        voice_mocks.setup(duration_ms=5000)
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.webm", audio, "audio/webm")},
+            data={"text": "hello"},
+        )
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "audio/wav"
         assert resp.content == WAV_STUB
+        call_kwargs = client.app.state.tts_model.tts_to_file.call_args[1]
+        assert call_kwargs["language"] == "en"
 
-    def test_xtts_value_error_returns_422(self, client):
+    def test_language_detection_passed_to_tts(self, client, voice_mocks):
+        """_detect_language result must be forwarded to tts_to_file(language=...)."""
+        audio = _make_audio(WEBM_HEADER)
+        client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
+        voice_mocks.setup(duration_ms=5000)
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.webm", audio, "audio/webm")},
+            data={"text": "你好世界"},
+        )
+        assert resp.status_code == 200
+        call_kwargs = client.app.state.tts_model.tts_to_file.call_args[1]
+        assert call_kwargs["language"] == "zh-cn"
+
+    def test_xtts_value_error_returns_422(self, client, voice_mocks):
         """XTTS raises ValueError → 422."""
         audio = _make_audio(WEBM_HEADER)
         client.app.state.tts_model.tts_to_file.side_effect = ValueError("audio too short")
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            self._setup_audio_seg_mock(mock_cls, duration_ms=5000)
-            resp = client.post(
-                "/api/clone-voice",
-                files={"file": ("rec.webm", audio, "audio/webm")},
-                data={"text": "hello"},
-            )
+        voice_mocks.setup(duration_ms=5000)
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.webm", audio, "audio/webm")},
+            data={"text": "hello"},
+        )
         assert resp.status_code == 422
         assert resp.json()["detail"] == "音訊樣本太短，無法進行語音克隆。"
 
-    def test_xtts_oom_returns_503(self, client):
+    def test_xtts_oom_returns_503(self, client, voice_mocks):
         """XTTS raises OutOfMemoryError → 503."""
         audio = _make_audio(WEBM_HEADER)
 
@@ -586,10 +599,8 @@ class TestXttsEndpoint:
             pass
 
         client.app.state.tts_model.tts_to_file.side_effect = OutOfMemoryError("CUDA OOM")
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.CudaOOMError", OutOfMemoryError), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            self._setup_audio_seg_mock(mock_cls, duration_ms=5000)
+        with patch("app.routes.voice.CudaOOMError", OutOfMemoryError):
+            voice_mocks.setup(duration_ms=5000)
             resp = client.post(
                 "/api/clone-voice",
                 files={"file": ("rec.webm", audio, "audio/webm")},
@@ -598,7 +609,7 @@ class TestXttsEndpoint:
         assert resp.status_code == 503
         assert resp.json()["detail"] == "語音克隆服務資源不足，請稍後再試。"
 
-    def test_xtts_oom_when_torch_missing_raises(self, client):
+    def test_xtts_oom_when_torch_missing_raises(self, client, voice_mocks):
         """When CudaOOMError is None (no torch), OOM propagates as 500."""
         audio = _make_audio(WEBM_HEADER)
 
@@ -606,10 +617,8 @@ class TestXttsEndpoint:
             pass
 
         client.app.state.tts_model.tts_to_file.side_effect = OutOfMemoryError("CUDA OOM")
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.CudaOOMError", None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            self._setup_audio_seg_mock(mock_cls, duration_ms=5000)
+        with patch("app.routes.voice.CudaOOMError", None):
+            voice_mocks.setup(duration_ms=5000)
             client._transport.raise_server_exceptions = False
             try:
                 resp = client.post(
@@ -621,35 +630,31 @@ class TestXttsEndpoint:
             finally:
                 client._transport.raise_server_exceptions = True
 
-    def test_xtts_no_output_returns_503(self, client):
+    def test_xtts_no_output_returns_503(self, client, voice_mocks):
         """tts_to_file produces no file → 503."""
         audio = _make_audio(WEBM_HEADER)
         client.app.state.tts_model.tts_to_file.return_value = None  # no-op
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            self._setup_audio_seg_mock(mock_cls, duration_ms=5000)
+        voice_mocks.setup(duration_ms=5000)
+        resp = client.post(
+            "/api/clone-voice",
+            files={"file": ("rec.webm", audio, "audio/webm")},
+            data={"text": "hello"},
+        )
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "語音合成未產生輸出檔案。"
+
+    def test_xtts_unexpected_error_raises(self, client, voice_mocks):
+        """Unexpected RuntimeError propagates as 500."""
+        audio = _make_audio(WEBM_HEADER)
+        client.app.state.tts_model.tts_to_file.side_effect = RuntimeError("unexpected")
+        voice_mocks.setup(duration_ms=5000)
+        client._transport.raise_server_exceptions = False
+        try:
             resp = client.post(
                 "/api/clone-voice",
                 files={"file": ("rec.webm", audio, "audio/webm")},
                 data={"text": "hello"},
             )
-        assert resp.status_code == 503
-        assert resp.json()["detail"] == "語音合成未產生輸出檔案。"
-
-    def test_xtts_unexpected_error_raises(self, client):
-        """Unexpected RuntimeError propagates as 500."""
-        audio = _make_audio(WEBM_HEADER)
-        client.app.state.tts_model.tts_to_file.side_effect = RuntimeError("unexpected")
-        with patch("app.routes.voice._estimate_pcm_size", return_value=None), \
-             patch("app.routes.voice.AudioSegment") as mock_cls:
-            self._setup_audio_seg_mock(mock_cls, duration_ms=5000)
-            client._transport.raise_server_exceptions = False
-            try:
-                resp = client.post(
-                    "/api/clone-voice",
-                    files={"file": ("rec.webm", audio, "audio/webm")},
-                    data={"text": "hello"},
-                )
-                assert resp.status_code == 500
-            finally:
-                client._transport.raise_server_exceptions = True
+            assert resp.status_code == 500
+        finally:
+            client._transport.raise_server_exceptions = True

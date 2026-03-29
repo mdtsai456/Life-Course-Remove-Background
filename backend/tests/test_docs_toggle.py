@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
+from tests.conftest import PNG_HEADER, _cleanup_modules, _make_mock_tts_api, _make_standard_patches
+
 
 @contextmanager
 def _make_app(docs_enabled: str):
@@ -18,35 +20,19 @@ def _make_app(docs_enabled: str):
     mock_torch = MagicMock(name="torch")
     mock_torch.cuda.is_available.return_value = False
 
-    mock_tts_instance = MagicMock()
-    mock_tts_instance.to.return_value = mock_tts_instance
-    mock_tts_api = MagicMock(name="TTS.api")
-    mock_tts_api.TTS = MagicMock(return_value=mock_tts_instance)
+    mock_tts_api, _ = _make_mock_tts_api()
 
-    patches = {
-        "rembg": mock_rembg,
-        "torch": mock_torch,
-        "TTS": MagicMock(api=mock_tts_api),
-        "TTS.api": mock_tts_api,
-    }
+    patches = _make_standard_patches(mock_rembg, mock_torch, mock_tts_api)
 
     with patch.dict(sys.modules, patches), \
          patch.dict("os.environ", {"DOCS_ENABLED": docs_enabled}):
-        sys.modules.pop("app.main", None)
-        sys.modules.pop("app.config", None)
-        sys.modules.pop("app.routes.images", None)
-        sys.modules.pop("app.routes.threed", None)
-        sys.modules.pop("app.routes.voice", None)
+        _cleanup_modules()
 
         from app.main import app
         with TestClient(app) as c:
             yield c
 
-        sys.modules.pop("app.main", None)
-        sys.modules.pop("app.config", None)
-        sys.modules.pop("app.routes.images", None)
-        sys.modules.pop("app.routes.threed", None)
-        sys.modules.pop("app.routes.voice", None)
+        _cleanup_modules()
 
 
 class TestDocsEnabled:
@@ -64,10 +50,9 @@ class TestDocsEnabled:
             assert c.get("/redoc").status_code == 404
 
     def test_api_still_works_when_docs_disabled(self):
-        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
         with _make_app("false") as c:
             resp = c.post(
                 "/api/image-to-3d",
-                files={"file": ("m.png", png, "image/png")},
+                files={"file": ("m.png", PNG_HEADER, "image/png")},
             )
             assert resp.status_code == 200
