@@ -6,8 +6,7 @@ import json
 import struct
 
 from app.routes.threed import _make_mock_glb
-
-PNG_HEADER = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+from tests.conftest import PNG_HEADER
 
 
 # ===========================================================================
@@ -67,7 +66,7 @@ class TestImageTo3dValidation:
             files={"file": ("model.png", fake, "image/png")},
         )
         assert resp.status_code == 415
-        assert "valid PNG" in resp.json()["detail"]
+        assert "有效的 PNG" in resp.json()["detail"]
 
     def test_success_returns_glb(self, client):
         resp = client.post(

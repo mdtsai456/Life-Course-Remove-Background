@@ -12,14 +12,13 @@ from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFil
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
 
+from app.constants import MAX_PCM_SIZE, MAX_XTTS_PENDING, MIME_TO_FORMAT
+from app.validation import read_and_validate_upload
+
 try:
     from torch.cuda import OutOfMemoryError as CudaOOMError
 except (ImportError, AttributeError):
     CudaOOMError = None
-
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-MAX_PCM_SIZE = 50 * 1024 * 1024  # 50 MB decompressed PCM limit
-MIME_TO_FORMAT = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg"}
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +48,18 @@ class VoiceInferenceError(Exception):
     """Domain exception for XTTS v2 inference failures."""
 
 
+class OOMError(VoiceInferenceError):
+    """CUDA out-of-memory during inference."""
+
+
+class NoOutputError(VoiceInferenceError):
+    """XTTS produced no output file."""
+
+
+class ShortAudioError(VoiceInferenceError):
+    """Audio sample too short for voice cloning."""
+
+
 def _estimate_pcm_size(contents: bytes, fmt: str) -> int | None:
     """Run ffprobe to estimate decompressed 16-bit PCM size without decoding.
 
@@ -66,6 +77,7 @@ def _estimate_pcm_size(contents: bytes, fmt: str) -> int | None:
             cmd, input=contents, capture_output=True, timeout=10,
         )
     except subprocess.TimeoutExpired:
+        logger.debug("ffprobe timed out; skipping PCM size pre-check")
         return None
 
     try:
@@ -170,13 +182,13 @@ def _run_xtts(tts, wav_bytes: bytes, text: str, language: str) -> bytes:
                 file_path=synth_path,
             )
         except ValueError as exc:
-            raise VoiceInferenceError("short_audio") from exc
+            raise ShortAudioError("audio too short") from exc
         except Exception as exc:
             if CudaOOMError is not None and isinstance(exc, CudaOOMError):
-                raise VoiceInferenceError("OOM") from exc
+                raise OOMError("CUDA out of memory") from exc
             raise
         if not os.path.isfile(synth_path):
-            raise VoiceInferenceError("no_output")
+            raise NoOutputError("no output file produced")
         with open(synth_path, "rb") as f:
             return f.read()
 
@@ -205,29 +217,17 @@ async def clone_voice(request: Request, file: UploadFile, text: str | None = For
     # Validate text
     stripped = (text or "").strip()
     if text is None or stripped == "":
-        raise HTTPException(status_code=400, detail="Text must not be empty.")
+        raise HTTPException(status_code=400, detail="文字不得為空。")
     if len(stripped) > 500:
         raise HTTPException(status_code=400, detail="文字不得超過 500 個字元。")
 
-    # Validate file size
-    if file.size is not None and file.size > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413, detail="File too large. Maximum allowed size is 10 MB."
-        )
-
-    contents = await file.read(MAX_FILE_SIZE + 1)
-    if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413, detail="File too large. Maximum allowed size is 10 MB."
-        )
-
-    # Validate magic bytes
-    detected = _detect_audio_type(contents)
-    if detected is None:
-        raise HTTPException(
-            status_code=415,
-            detail="File content does not appear to be a valid audio file.",
-        )
+    # Validate file size + magic bytes
+    contents, detected = await read_and_validate_upload(
+        file,
+        detect_type=_detect_audio_type,
+        allowed_types=set(MIME_TO_FORMAT),
+        type_error_detail="檔案內容不是有效的音訊格式。",
+    )
 
     # Convert to WAV
     fmt = MIME_TO_FORMAT[detected]
@@ -260,22 +260,29 @@ async def clone_voice(request: Request, file: UploadFile, text: str | None = For
 
     language = _detect_language(stripped)
 
+    if request.app.state.xtts_pending >= MAX_XTTS_PENDING:
+        raise HTTPException(status_code=503, detail="語音克隆服務忙碌中，請稍後再試。")
+    request.app.state.xtts_pending += 1
     try:
         async with request.app.state.xtts_lock:
             result_bytes = await anyio.to_thread.run_sync(
                 lambda: _run_xtts(tts_model, wav_bytes, stripped, language),
                 abandon_on_cancel=False,
             )
-    except VoiceInferenceError as exc:
-        logger.warning("XTTS inference failed: %s", exc)
-        if exc.args[0] == "OOM":
-            raise HTTPException(status_code=503, detail="語音克隆服務資源不足，請稍後再試。") from None
-        if exc.args[0] == "no_output":
-            raise HTTPException(status_code=503, detail="語音合成未產生輸出檔案。") from None
+    except OOMError:
+        logger.warning("XTTS inference failed: CUDA OOM")
+        raise HTTPException(status_code=503, detail="語音克隆服務資源不足，請稍後再試。") from None
+    except NoOutputError:
+        logger.warning("XTTS inference failed: no output file")
+        raise HTTPException(status_code=503, detail="語音合成未產生輸出檔案。") from None
+    except ShortAudioError:
+        logger.warning("XTTS inference failed: audio too short")
         raise HTTPException(status_code=422, detail="音訊樣本太短，無法進行語音克隆。") from None
     except Exception:
         logger.exception("Unexpected XTTS error")
         raise
+    finally:
+        request.app.state.xtts_pending -= 1
 
     return Response(
         content=result_bytes,

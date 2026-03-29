@@ -9,6 +9,7 @@ os.environ["COQUI_TOS_AGREED"] = "1"  # must precede TTS import
 import torch
 from TTS.api import TTS
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from rembg import new_session
 
@@ -36,10 +37,12 @@ async def lifespan(app: FastAPI):
     logger.info("XTTS v2 model loaded in %.1fs (device: %s)", elapsed, device)
     app.state.tts_model = tts
     app.state.xtts_lock = asyncio.Lock()
+    app.state.xtts_pending = 0
 
     yield
 
     # Teardown: release models in reverse order
+    del app.state.xtts_pending
     del app.state.xtts_lock
     del app.state.tts_model
     if torch.cuda.is_available():
@@ -76,3 +79,16 @@ async def add_security_headers(request: Request, call_next):
 app.include_router(images_router)
 app.include_router(threed_router)
 app.include_router(voice_router)
+
+
+@app.get("/health")
+async def health():
+    checks = {
+        "rembg": getattr(app.state, "rembg_session", None) is not None,
+        "xtts_v2": getattr(app.state, "tts_model", None) is not None,
+    }
+    healthy = all(checks.values())
+    return JSONResponse(
+        status_code=200 if healthy else 503,
+        content={"status": "ok" if healthy else "loading", "checks": checks},
+    )
