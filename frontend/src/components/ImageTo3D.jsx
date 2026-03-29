@@ -1,77 +1,50 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { removeBackground, convertTo3D } from '../services/api'
+import { IMAGE_ACCEPT_STRING } from '../constants'
+import { validateImageFile } from '../utils/validateImageFile'
+import { revokeResultUrl } from '../utils/revokeResultUrl'
+import useAsyncSubmit from '../hooks/useAsyncSubmit'
+import { useDerivedObjectUrl, useManagedObjectUrl } from '../hooks/useObjectUrl'
+import LoadingButton from './LoadingButton'
 import ProgressStatus from './ProgressStatus'
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024
-const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+const REMOVE_BG_PROGRESS_LABELS = { uploading: '上傳圖片中...', processing: '移除背景中...' }
+const CONVERT_3D_PROGRESS_LABELS = { uploading: '上傳圖片中...', processing: '轉換 3D 中...' }
 
 export default function ImageTo3D({ visible = true }) {
   const [file, setFile] = useState(null)
-  const [originalUrl, setOriginalUrl] = useState(null)
-  const [removedBgUrl, setRemovedBgUrl] = useState(null)
+  const originalUrl = useDerivedObjectUrl(file)
+  const [removedBgUrl, setRemovedBgUrl] = useManagedObjectUrl()
   const [removedBgBlob, setRemovedBgBlob] = useState(null)
-  const [model3dUrl, setModel3dUrl] = useState(null)
+  const [model3dUrl, setModel3dUrl] = useManagedObjectUrl()
   const [step, setStep] = useState('idle') // idle | removing | removed | converting | done
   const [error, setError] = useState('')
-  const [removePhase, setRemovePhase] = useState(null)
-  const [convertPhase, setConvertPhase] = useState(null)
 
-  const abortControllerRef = useRef(null)
-  const removePhaseTimerRef = useRef(null)
-  const convertPhaseTimerRef = useRef(null)
-  const uploadTimerRef = useRef(null)
+  const removeOp = useAsyncSubmit()
+  const convertOp = useAsyncSubmit()
 
-  // Cleanup on unmount: abort pending requests
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      abortControllerRef.current?.abort()
-      clearTimeout(removePhaseTimerRef.current)
-      clearTimeout(convertPhaseTimerRef.current)
-      clearTimeout(uploadTimerRef.current)
+      removeOp.reset()
+      convertOp.reset()
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset is stable (useCallback)
+  }, [removeOp.reset, convertOp.reset])
 
   // Abort in-flight requests and reset loading state when tab becomes hidden
   useEffect(() => {
     if (visible) return
-    abortControllerRef.current?.abort()
-    clearTimeout(removePhaseTimerRef.current)
-    clearTimeout(convertPhaseTimerRef.current)
-    clearTimeout(uploadTimerRef.current)
-    setRemovePhase(null)
-    setConvertPhase(null)
-    // Reset step from loading states while preserving completed results
+    removeOp.reset()
+    convertOp.reset()
+    setError('')
     setStep(prev => {
       if (prev === 'removing') return 'idle'
       if (prev === 'converting') return 'removed'
       return prev
     })
-  }, [visible])
-
-  // Original image preview URL lifecycle
-  useEffect(() => {
-    if (!file) {
-      setOriginalUrl(null)
-      return
-    }
-    const url = URL.createObjectURL(file)
-    setOriginalUrl(url)
-    return () => URL.revokeObjectURL(url)
-  }, [file])
-
-  // Removed BG preview URL lifecycle
-  useEffect(() => {
-    return () => {
-      if (removedBgUrl) URL.revokeObjectURL(removedBgUrl)
-    }
-  }, [removedBgUrl])
-
-  // 3D model URL lifecycle
-  useEffect(() => {
-    return () => {
-      if (model3dUrl) URL.revokeObjectURL(model3dUrl)
-    }
-  }, [model3dUrl])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset is stable (useCallback)
+  }, [visible, removeOp.reset, convertOp.reset])
 
   function handleFileChange(e) {
     const selected = e.target.files?.[0] || null
@@ -86,14 +59,9 @@ export default function ImageTo3D({ visible = true }) {
       return
     }
 
-    if (!ALLOWED_TYPES.includes(selected.type)) {
-      setError('Unsupported file type. Please upload a PNG, JPEG, or WebP image.')
-      setFile(null)
-      return
-    }
-
-    if (selected.size > MAX_FILE_SIZE) {
-      setError('File is too large. Maximum allowed size is 10 MB.')
+    const validation = validateImageFile(selected)
+    if (validation) {
+      setError(validation.error)
       setFile(null)
       return
     }
@@ -105,79 +73,52 @@ export default function ImageTo3D({ visible = true }) {
     e.preventDefault()
     if (!file) return
 
-    abortControllerRef.current?.abort()
-    const localController = new AbortController()
-    abortControllerRef.current = localController
     setStep('removing')
     setError('')
     setRemovedBgUrl(null)
     setRemovedBgBlob(null)
     setModel3dUrl(null)
-    clearTimeout(removePhaseTimerRef.current)
-    setRemovePhase('uploading')
 
-    const localUploadTimer = setTimeout(() => setRemovePhase('processing'), 800)
-    uploadTimerRef.current = localUploadTimer
-    let url
-    try {
-      const result = await removeBackground(file, localController.signal)
-      url = result.url
-      clearTimeout(localUploadTimer)
-      if (localController.signal.aborted) {
-        if (url) URL.revokeObjectURL(url)
-        return
-      }
-      setRemovePhase('done')
-      removePhaseTimerRef.current = setTimeout(() => setRemovePhase(null), 500)
-      setRemovedBgUrl(url)
-      setRemovedBgBlob(result.blob)
-      setStep('removed')
-    } catch (err) {
-      clearTimeout(localUploadTimer)
-      if (url) URL.revokeObjectURL(url)
-      if (err.name === 'AbortError' || localController.signal.aborted) return
-      setRemovePhase(null)
-      setError(err.message || 'Something went wrong. Please try again.')
-      setStep('idle')
-    }
+    removeOp.execute(
+      (signal) => removeBackground(file, signal),
+      {
+        onSuccess: (result) => {
+          setRemovedBgUrl(result.url)
+          setRemovedBgBlob(result.blob)
+          setStep('removed')
+        },
+        onError: (err) => {
+          setError(err.message || '發生錯誤，請重試。')
+          setStep('idle')
+        },
+        onAbortCleanup: revokeResultUrl,
+      },
+    )
   }
 
   async function handleConvertTo3D() {
     if (!removedBgBlob) return
 
-    abortControllerRef.current?.abort()
-    const localController = new AbortController()
-    abortControllerRef.current = localController
     setStep('converting')
     setError('')
     setModel3dUrl(null)
-    clearTimeout(convertPhaseTimerRef.current)
-    setConvertPhase('uploading')
 
     const pngFile = new File([removedBgBlob], 'removed_bg.png', { type: 'image/png' })
 
-    const localUploadTimer = setTimeout(() => setConvertPhase('processing'), 800)
-    uploadTimerRef.current = localUploadTimer
-    let url
-    try {
-      ;({ url } = await convertTo3D(pngFile, localController.signal))
-      clearTimeout(localUploadTimer)
-      if (localController.signal.aborted) {
-        if (url) URL.revokeObjectURL(url)
-        return
-      }
-      setConvertPhase('done')
-      convertPhaseTimerRef.current = setTimeout(() => setConvertPhase(null), 500)
-      setModel3dUrl(url)
-      setStep('done')
-    } catch (err) {
-      clearTimeout(localUploadTimer)
-      if (url) URL.revokeObjectURL(url)
-      if (err.name === 'AbortError' || localController.signal.aborted) return
-      setConvertPhase(null)
-      setError(err.message || 'Something went wrong. Please try again.')
-      setStep('removed') // 回到 removed 狀態，保留去背結果
-    }
+    convertOp.execute(
+      (signal) => convertTo3D(pngFile, signal),
+      {
+        onSuccess: (result) => {
+          setModel3dUrl(result.url)
+          setStep('done')
+        },
+        onError: (err) => {
+          setError(err.message || '發生錯誤，請重試。')
+          setStep('removed')
+        },
+        onAbortCleanup: revokeResultUrl,
+      },
+    )
   }
 
   const isRemoving = step === 'removing'
@@ -192,7 +133,7 @@ export default function ImageTo3D({ visible = true }) {
           <input
             id="img3d-upload"
             type="file"
-            accept="image/png, image/jpeg, image/webp"
+            accept={IMAGE_ACCEPT_STRING}
             onChange={handleFileChange}
             disabled={isRemoving || isConverting}
             className="file-input"
@@ -202,21 +143,16 @@ export default function ImageTo3D({ visible = true }) {
             {file ? file.name : 'No file chosen'}
           </span>
         </label>
-        <button
+        <LoadingButton
           type="submit"
           disabled={!file || isRemoving || isConverting}
           className="submit-button"
+          loading={isRemoving}
+          loadingText="Removing Background…"
         >
-          {isRemoving ? (
-            <span className="spinner-wrapper">
-              <span className="spinner" />
-              Removing Background…
-            </span>
-          ) : (
-            'Remove Background'
-          )}
-        </button>
-        <ProgressStatus phase={removePhase} labels={{ uploading: '上傳圖片中...', processing: '移除背景中...' }} />
+          Remove Background
+        </LoadingButton>
+        <ProgressStatus phase={removeOp.phase} labels={REMOVE_BG_PROGRESS_LABELS} />
       </form>
 
       {error && <p className="error-message">{error}</p>}
@@ -244,21 +180,16 @@ export default function ImageTo3D({ visible = true }) {
               >
                 Download PNG
               </a>
-              <button
+              <LoadingButton
                 onClick={handleConvertTo3D}
                 disabled={isConverting}
                 className="submit-button"
+                loading={isConverting}
+                loadingText="Converting to 3D…"
               >
-                {isConverting ? (
-                  <span className="spinner-wrapper">
-                    <span className="spinner" />
-                    Converting to 3D…
-                  </span>
-                ) : (
-                  'Convert to 3D'
-                )}
-              </button>
-              <ProgressStatus phase={convertPhase} labels={{ uploading: '上傳圖片中...', processing: '轉換 3D 中...' }} />
+                Convert to 3D
+              </LoadingButton>
+              <ProgressStatus phase={convertOp.phase} labels={CONVERT_3D_PROGRESS_LABELS} />
             </div>
           )}
         </div>

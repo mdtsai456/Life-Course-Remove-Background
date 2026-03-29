@@ -3,6 +3,14 @@ import ImageUploader from './components/ImageUploader'
 import VoiceCloner from './components/VoiceCloner'
 import ImageTo3D from './components/ImageTo3D'
 
+function TabPanel({ active, children }) {
+  return (
+    <div style={{ display: active ? 'block' : 'none' }}>
+      {children}
+    </div>
+  )
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('remove-bg')
 
@@ -32,15 +40,15 @@ export default function App() {
         </nav>
       </header>
       <main>
-        <div style={{ display: activeTab === 'remove-bg' ? 'block' : 'none' }}>
+        <TabPanel active={activeTab === 'remove-bg'}>
           <ImageUploader visible={activeTab === 'remove-bg'} />
-        </div>
-        <div style={{ display: activeTab === 'voice-clone' ? 'block' : 'none' }}>
+        </TabPanel>
+        <TabPanel active={activeTab === 'voice-clone'}>
           <VoiceCloner visible={activeTab === 'voice-clone'} />
-        </div>
-        <div style={{ display: activeTab === 'image-to-3d' ? 'block' : 'none' }}>
+        </TabPanel>
+        <TabPanel active={activeTab === 'image-to-3d'}>
           <ImageTo3D visible={activeTab === 'image-to-3d'} />
-        </div>
+        </TabPanel>
       </main>
     </div>
   )

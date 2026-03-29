@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { cloneVoice } from '../services/api'
+import { revokeResultUrl } from '../utils/revokeResultUrl'
+import useAsyncSubmit from '../hooks/useAsyncSubmit'
+import { useManagedObjectUrl } from '../hooks/useObjectUrl'
+import LoadingButton from './LoadingButton'
 import ProgressStatus from './ProgressStatus'
 
 // --- Pure helpers (outside component, never recreated) ---
@@ -42,6 +46,8 @@ function mapGetUserMediaError(err) {
   return `無法存取麥克風：${err.message}`
 }
 
+const CLONE_PROGRESS_LABELS = { uploading: '上傳錄音中...', processing: '克隆聲音中...' }
+
 // --- Component ---
 
 export default function VoiceCloner({ visible = true }) {
@@ -51,11 +57,10 @@ export default function VoiceCloner({ visible = true }) {
   const [audioBlob, setAudioBlob]           = useState(null)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [text, setText]                     = useState('')
-  const [resultUrl, setResultUrl]           = useState(null)
+  const [resultUrl, setResultUrl]           = useManagedObjectUrl()
   const [recordingMimeType, setRecordingMimeType] = useState('')
-  const [loading, setLoading]               = useState(false)
-  const [error, setError]                   = useState('')
-  const [phase, setPhase]                   = useState(null)
+
+  const { execute, loading, error, setError, phase, reset } = useAsyncSubmit()
 
   // External resource refs (no re-render on change)
   const mediaRecorderRef = useRef(null)
@@ -63,33 +68,21 @@ export default function VoiceCloner({ visible = true }) {
   const chunksRef        = useRef([])
   const timerRef         = useRef(null)
   const disposedRef      = useRef(false)
-  const abortControllerRef = useRef(null)
-  const phaseTimerRef = useRef(null)
-  const uploadTimerRef = useRef(null)
   const visibleRef = useRef(visible)
-
-  // Revoke resultUrl on change or unmount
-  useEffect(() => {
-    return () => {
-      if (resultUrl) URL.revokeObjectURL(resultUrl)
-    }
-  }, [resultUrl])
 
   // Cleanup on unmount (tab switch or component removal)
   useEffect(() => {
     return () => {
       disposedRef.current = true
       clearInterval(timerRef.current)
-      clearTimeout(phaseTimerRef.current)
-      clearTimeout(uploadTimerRef.current)
+      reset()
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop()
       }
       streamRef.current?.getTracks().forEach(t => t.stop())
       streamRef.current = null
-      abortControllerRef.current?.abort()
     }
-  }, [])
+  }, [reset])
 
   // Keep visibleRef in sync so async callbacks can check it
   useEffect(() => {
@@ -100,22 +93,19 @@ export default function VoiceCloner({ visible = true }) {
   useEffect(() => {
     if (visible) return
     clearInterval(timerRef.current)
-    clearTimeout(phaseTimerRef.current)
-    clearTimeout(uploadTimerRef.current)
+    reset()
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
     }
     streamRef.current?.getTracks().forEach(t => t.stop())
     streamRef.current = null
-    abortControllerRef.current?.abort()
+    chunksRef.current = []
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional cleanup on visibility change
     setIsRecording(false)
     setIsAcquiringMic(false)
     setRecordingSeconds(0)
     setAudioBlob(null)
-    chunksRef.current = []
-    setLoading(false)
-    setPhase(null)
-  }, [visible])
+  }, [visible, reset])
 
   function stopMicTracks() {
     streamRef.current?.getTracks().forEach(t => t.stop())
@@ -216,47 +206,18 @@ export default function VoiceCloner({ visible = true }) {
     e.preventDefault()
     if (!audioBlob || !text.trim()) return
 
-    abortControllerRef.current?.abort()
-    const localController = new AbortController()
-    abortControllerRef.current = localController
-    setLoading(true)
-    setError('')
-    clearTimeout(phaseTimerRef.current)
-    clearTimeout(uploadTimerRef.current)
-    setPhase('uploading')
-    if (resultUrl) {
-      URL.revokeObjectURL(resultUrl)
-      setResultUrl(null)
-    }
+    setResultUrl(null)
 
     const ext = recordingMimeType ? mimeTypeToExtension(recordingMimeType) : 'audio'
     const audioFile = new File([audioBlob], `recording.${ext}`, { type: audioBlob.type })
 
-    uploadTimerRef.current = setTimeout(() => setPhase('processing'), 800)
-    let localResultUrl = null
-    try {
-      ;({ url: localResultUrl } = await cloneVoice(audioFile, text.trim(), localController.signal))
-      clearTimeout(uploadTimerRef.current)
-      if (!localController.signal.aborted) {
-        setPhase('done')
-        phaseTimerRef.current = setTimeout(() => setPhase(null), 500)
-        setResultUrl(localResultUrl)
-      }
-    } catch (err) {
-      clearTimeout(uploadTimerRef.current)
-      setPhase(null)
-      if (err.name === 'AbortError') return
-      if (!localController.signal.aborted) {
-        setError(err.message || 'Something went wrong. Please try again.')
-      }
-    } finally {
-      if (localResultUrl && localController.signal.aborted) {
-        URL.revokeObjectURL(localResultUrl)
-      }
-      if (!localController.signal.aborted) {
-        setLoading(false)
-      }
-    }
+    execute(
+      (signal) => cloneVoice(audioFile, text.trim(), signal),
+      {
+        onSuccess: ({ url }) => setResultUrl(url),
+        onAbortCleanup: revokeResultUrl,
+      },
+    )
   }
 
   const isDisabled = !audioBlob || !text.trim() || loading || isRecording || isAcquiringMic
@@ -272,19 +233,17 @@ export default function VoiceCloner({ visible = true }) {
         {/* Recording section */}
         <div className="record-section">
           {!isRecording ? (
-            <button
+            <LoadingButton
               type="button"
               className="record-button"
               onClick={handleStartRecording}
               disabled={isAcquiringMic || loading}
+              loading={isAcquiringMic}
+              loadingText="等待麥克風…"
+              spinnerStyle={{ borderTopColor: '#fff', borderColor: 'rgba(255,255,255,0.4)' }}
             >
-              {isAcquiringMic ? (
-                <span className="spinner-wrapper">
-                  <span className="spinner" style={{ borderTopColor: '#fff', borderColor: 'rgba(255,255,255,0.4)' }} />
-                  等待麥克風…
-                </span>
-              ) : '● 開始錄音'}
-            </button>
+              ● 開始錄音
+            </LoadingButton>
           ) : (
             <button
               type="button"
@@ -320,19 +279,16 @@ export default function VoiceCloner({ visible = true }) {
         />
 
         {/* Submit */}
-        <button
+        <LoadingButton
           type="submit"
           className="submit-button"
           disabled={isDisabled}
+          loading={loading}
+          loadingText="處理中…"
         >
-          {loading ? (
-            <span className="spinner-wrapper">
-              <span className="spinner" />
-              處理中…
-            </span>
-          ) : '送出'}
-        </button>
-        <ProgressStatus phase={phase} labels={{ uploading: '上傳錄音中...', processing: '克隆聲音中...' }} />
+          送出
+        </LoadingButton>
+        <ProgressStatus phase={phase} labels={CLONE_PROGRESS_LABELS} />
       </form>
 
       {error && <p className="error-message">{error}</p>}
