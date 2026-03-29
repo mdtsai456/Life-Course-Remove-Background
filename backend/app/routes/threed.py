@@ -4,14 +4,21 @@ import json
 import logging
 import struct
 
-from fastapi import APIRouter, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Response, UploadFile
 
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-ALLOWED_MIME_TYPES = {"image/png"}
+from app.constants import ALLOWED_3D_MIME_TYPES, PNG_MAGIC
+from app.validation import read_and_validate_upload
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _detect_png(contents: bytes) -> str | None:
+    """Return 'image/png' if contents start with the PNG magic bytes."""
+    if contents.startswith(PNG_MAGIC):
+        return "image/png"
+    return None
 
 
 def _make_mock_glb() -> bytes:
@@ -51,30 +58,18 @@ def _make_mock_glb() -> bytes:
     },
 )
 async def image_to_3d(file: UploadFile):
-    if file.content_type not in ALLOWED_MIME_TYPES:
-        raise HTTPException(
-            status_code=415,
-            detail=f"Unsupported file type '{file.content_type}'. Expected image/png.",
-        )
+    # MIME type is informational only; final validation uses magic bytes.
+    ct = (file.content_type or "").split(";")[0].strip().lower()
+    if ct not in ALLOWED_3D_MIME_TYPES:
+        logger.debug("MIME hint %r not in allowed types; will rely on magic bytes", ct)
 
-    if file.size is not None and file.size > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail="File too large. Maximum allowed size is 10 MB.",
-        )
-
-    contents = await file.read(MAX_FILE_SIZE + 1)
-    if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail="File too large. Maximum allowed size is 10 MB.",
-        )
-
-    if not contents.startswith(b"\x89PNG\r\n\x1a\n"):
-        raise HTTPException(
-            status_code=415,
-            detail="File content does not appear to be a valid PNG.",
-        )
+    allowed = ", ".join(sorted(ALLOWED_3D_MIME_TYPES))
+    contents, _ = await read_and_validate_upload(
+        file,
+        detect_type=_detect_png,
+        allowed_types=ALLOWED_3D_MIME_TYPES,
+        type_error_detail=f"檔案內容不是有效的格式。允許：{allowed}。",
+    )
 
     # TODO: 替換成真實 2D→3D 模型推理（TripoSR、Meshy 等）
     logger.info("Returning mock GLB for development (file size: %d bytes)", len(contents))
@@ -83,5 +78,5 @@ async def image_to_3d(file: UploadFile):
     return Response(
         content=glb,
         media_type="model/gltf-binary",
-        headers={"Content-Disposition": "attachment; filename=\"model.glb\""},
+        headers={"Content-Disposition": 'attachment; filename="model.glb"'},
     )

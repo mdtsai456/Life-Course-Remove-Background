@@ -1,58 +1,38 @@
 import { useEffect, useRef, useState } from 'react'
 import { removeBackground } from '../services/api'
+import { IMAGE_ACCEPT_STRING } from '../constants'
+import { validateImageFile } from '../utils/validateImageFile'
+import { revokeResultUrl } from '../utils/revokeResultUrl'
+import useAsyncSubmit from '../hooks/useAsyncSubmit'
+import { useDerivedObjectUrl, useManagedObjectUrl } from '../hooks/useObjectUrl'
+import LoadingButton from './LoadingButton'
 import ProgressStatus from './ProgressStatus'
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024
-const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 const UPLOAD_PROGRESS_LABELS = { uploading: '上傳圖片中...', processing: '移除背景中...' }
 
 export default function ImageUploader({ visible = true }) {
   const [file, setFile] = useState(null)
-  const [originalUrl, setOriginalUrl] = useState(null)
-  const [resultUrl, setResultUrl] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [phase, setPhase] = useState(null)
+  const originalUrl = useDerivedObjectUrl(file)
+  const [resultUrl, setResultUrl] = useManagedObjectUrl()
   const [isDragOver, setIsDragOver] = useState(false)
 
-  const abortControllerRef = useRef(null)
-  const phaseTimerRef = useRef(null)
+  const { execute, loading, error, setError, phase, reset } = useAsyncSubmit()
   const dragCounterRef = useRef(0)
   const applyFileRef = useRef(null)
 
+  // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      abortControllerRef.current?.abort()
-      clearTimeout(phaseTimerRef.current)
-    }
-  }, [])
+    return () => reset()
+  }, [reset])
 
   // Abort in-flight requests and reset loading state when tab becomes hidden
   useEffect(() => {
     if (visible) return
-    abortControllerRef.current?.abort()
-    clearTimeout(phaseTimerRef.current)
-    setLoading(false)
-    setPhase(null)
+    reset()
     dragCounterRef.current = 0
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional cleanup on visibility change
     setIsDragOver(false)
-  }, [visible])
-
-  useEffect(() => {
-    if (!file) {
-      setOriginalUrl(null)
-      return
-    }
-    const url = URL.createObjectURL(file)
-    setOriginalUrl(url)
-    return () => URL.revokeObjectURL(url)
-  }, [file])
-
-  useEffect(() => {
-    return () => {
-      if (resultUrl) URL.revokeObjectURL(resultUrl)
-    }
-  }, [resultUrl])
+  }, [visible, reset])
 
   function applyFile(selected) {
     if (loading) return
@@ -64,14 +44,9 @@ export default function ImageUploader({ visible = true }) {
       return
     }
 
-    if (!ALLOWED_TYPES.includes(selected.type)) {
-      setError('Unsupported file type. Please upload a PNG, JPEG, or WebP image.')
-      setFile(null)
-      return
-    }
-
-    if (selected.size > MAX_FILE_SIZE) {
-      setError('File is too large. Maximum allowed size is 10 MB.')
+    const validation = validateImageFile(selected)
+    if (validation) {
+      setError(validation.error)
       setFile(null)
       return
     }
@@ -79,7 +54,7 @@ export default function ImageUploader({ visible = true }) {
     setFile(selected)
   }
 
-  applyFileRef.current = applyFile
+  useEffect(() => { applyFileRef.current = applyFile })
 
   function handleFileChange(e) {
     applyFile(e.target.files?.[0] ?? null)
@@ -105,7 +80,7 @@ export default function ImageUploader({ visible = true }) {
       const items = e.clipboardData?.items
       if (!items) return
       for (const item of items) {
-        if (item.kind === 'file' && ALLOWED_TYPES.includes(item.type)) {
+        if (item.kind === 'file') {
           e.preventDefault()
           applyFileRef.current(item.getAsFile())
           return
@@ -119,40 +94,15 @@ export default function ImageUploader({ visible = true }) {
   async function handleSubmit(e) {
     e.preventDefault()
     if (!file) return
-
-    abortControllerRef.current?.abort()
-    const localController = new AbortController()
-    abortControllerRef.current = localController
-    setLoading(true)
-    setError('')
     setResultUrl(null)
-    clearTimeout(phaseTimerRef.current)
-    setPhase('uploading')
 
-    const localPhaseTimer = setTimeout(() => setPhase('processing'), 800)
-    phaseTimerRef.current = localPhaseTimer
-    try {
-      const { url } = await removeBackground(file, localController.signal)
-      clearTimeout(localPhaseTimer)
-      if (localController.signal.aborted) {
-        URL.revokeObjectURL(url)
-        return
-      }
-      setPhase('done')
-      phaseTimerRef.current = setTimeout(() => setPhase(null), 500)
-      setResultUrl(url)
-    } catch (err) {
-      clearTimeout(localPhaseTimer)
-      if (err.name === 'AbortError') return
-      if (!localController.signal.aborted) {
-        setPhase(null)
-        setError(err.message || 'Something went wrong. Please try again.')
-      }
-    } finally {
-      if (!localController.signal.aborted) {
-        setLoading(false)
-      }
-    }
+    execute(
+      (signal) => removeBackground(file, signal),
+      {
+        onSuccess: ({ url }) => setResultUrl(url),
+        onAbortCleanup: revokeResultUrl,
+      },
+    )
   }
 
   return (
@@ -175,7 +125,7 @@ export default function ImageUploader({ visible = true }) {
           <input
             id="image-upload"
             type="file"
-            accept="image/png, image/jpeg, image/webp"
+            accept={IMAGE_ACCEPT_STRING}
             onChange={handleFileChange}
             disabled={loading}
             className="file-input"
@@ -185,20 +135,15 @@ export default function ImageUploader({ visible = true }) {
             {file ? file.name : 'No file chosen'}
           </span>
         </label>
-        <button
+        <LoadingButton
           type="submit"
           disabled={!file || loading}
           className="submit-button"
+          loading={loading}
+          loadingText="Processing…"
         >
-          {loading ? (
-            <span className="spinner-wrapper">
-              <span className="spinner" />
-              Processing…
-            </span>
-          ) : (
-            'Remove Background'
-          )}
-        </button>
+          Remove Background
+        </LoadingButton>
         <ProgressStatus phase={phase} labels={UPLOAD_PROGRESS_LABELS} />
       </form>
 

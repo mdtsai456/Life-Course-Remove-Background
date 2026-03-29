@@ -6,8 +6,7 @@ import json
 import struct
 
 from app.routes.threed import _make_mock_glb
-
-PNG_HEADER = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+from tests.conftest import PNG_HEADER
 
 
 # ===========================================================================
@@ -35,20 +34,21 @@ class TestMakeMockGlb:
 # /api/image-to-3d endpoint tests
 # ===========================================================================
 class TestImageTo3dValidation:
-    def test_reject_unsupported_mime_type(self, client):
+    def test_accept_mismatched_mime_with_valid_magic(self, client):
+        """MIME says image/jpeg but content is valid PNG → accept (magic bytes win)."""
         resp = client.post(
             "/api/image-to-3d",
             files={"file": ("model.jpg", PNG_HEADER, "image/jpeg")},
         )
-        assert resp.status_code == 415
-        assert "image/png" in resp.json()["detail"]
+        assert resp.status_code == 200
 
-    def test_reject_no_content_type(self, client):
+    def test_accept_octet_stream_with_valid_magic(self, client):
+        """MIME is generic but content is valid PNG → accept."""
         resp = client.post(
             "/api/image-to-3d",
             files={"file": ("model.png", PNG_HEADER, "application/octet-stream")},
         )
-        assert resp.status_code == 415
+        assert resp.status_code == 200
 
     def test_reject_oversized_file_via_size_header(self, client):
         big = PNG_HEADER + b"\x00" * (10 * 1024 * 1024)
@@ -67,7 +67,7 @@ class TestImageTo3dValidation:
             files={"file": ("model.png", fake, "image/png")},
         )
         assert resp.status_code == 415
-        assert "valid PNG" in resp.json()["detail"]
+        assert "image/png" in resp.json()["detail"]
 
     def test_success_returns_glb(self, client):
         resp = client.post(
