@@ -38,11 +38,11 @@ export default function ImageTo3D({ visible = true }) {
     removeOp.reset()
     convertOp.reset()
     setError('')
-    setStep(prev => {
-      if (prev === 'removing') return 'idle'
-      if (prev === 'converting') return 'removed'
-      return prev
-    })
+    setFile(null)
+    setRemovedBgUrl(null)
+    setRemovedBgBlob(null)
+    setModel3dUrl(null)
+    setStep('idle')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset is stable (useCallback)
   }, [visible, removeOp.reset, convertOp.reset])
 

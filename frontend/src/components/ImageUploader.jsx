@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { removeBackground } from '../services/api'
-import { ALLOWED_IMAGE_TYPES, IMAGE_ACCEPT_STRING } from '../constants'
+import { IMAGE_ACCEPT_STRING } from '../constants'
 import { validateImageFile } from '../utils/validateImageFile'
 import { revokeResultUrl } from '../utils/revokeResultUrl'
 import useAsyncSubmit from '../hooks/useAsyncSubmit'
@@ -80,7 +80,7 @@ export default function ImageUploader({ visible = true }) {
       const items = e.clipboardData?.items
       if (!items) return
       for (const item of items) {
-        if (item.kind === 'file' && ALLOWED_IMAGE_TYPES.includes(item.type)) {
+        if (item.kind === 'file') {
           e.preventDefault()
           applyFileRef.current(item.getAsFile())
           return

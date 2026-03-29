@@ -105,7 +105,8 @@ export default function VoiceCloner({ visible = true }) {
     setIsAcquiringMic(false)
     setRecordingSeconds(0)
     setAudioBlob(null)
-  }, [visible, reset])
+    setResultUrl(null)
+  }, [visible, reset, setResultUrl])
 
   function stopMicTracks() {
     streamRef.current?.getTracks().forEach(t => t.stop())
