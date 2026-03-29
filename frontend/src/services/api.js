@@ -22,7 +22,7 @@ async function postForBlob(url, formData, fallbackMessage, signal) {
 
   const blob = await response.blob()
   if (blob.size === 0) {
-    throw new Error('Received empty response from server.')
+    throw new Error('伺服器回應為空。')
   }
   return { url: URL.createObjectURL(blob), blob }
 }
@@ -30,18 +30,18 @@ async function postForBlob(url, formData, fallbackMessage, signal) {
 export async function removeBackground(file, signal) {
   const formData = new FormData()
   formData.append('file', file)
-  return postForBlob('/api/remove-background', formData, 'Failed to remove background.', signal)
+  return postForBlob('/api/remove-background', formData, '移除背景失敗。', signal)
 }
 
 export async function convertTo3D(file, signal) {
   const formData = new FormData()
   formData.append('file', file)
-  return postForBlob('/api/image-to-3d', formData, 'Failed to convert to 3D.', signal)
+  return postForBlob('/api/image-to-3d', formData, '3D 轉換失敗。', signal)
 }
 
 export async function cloneVoice(audioFile, text, signal) {
   const formData = new FormData()
   formData.append('file', audioFile)
   formData.append('text', text ?? '')
-  return postForBlob('/api/clone-voice', formData, 'Failed to clone voice.', signal)
+  return postForBlob('/api/clone-voice', formData, '語音克隆失敗。', signal)
 }
