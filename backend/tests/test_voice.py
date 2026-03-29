@@ -13,7 +13,7 @@ from pydub.exceptions import CouldntDecodeError
 
 from tests.conftest import _cleanup_modules, _make_standard_patches
 
-from app.constants import MAX_PCM_SIZE
+from app.constants import MAX_FILE_SIZE, MAX_PCM_SIZE, MAX_XTTS_PENDING
 from app.routes.voice import (
     AudioConversionError,
     NoOutputError,
@@ -171,7 +171,7 @@ class TestConvertToWav:
     def test_oversized_pcm(self, _mock_estimate):
         with patch("app.routes.voice.AudioSegment") as mock_cls:
             mock_audio = MagicMock()
-            mock_audio.raw_data = b"\x00" * (50 * 1024 * 1024 + 1)
+            mock_audio.raw_data = b"\x00" * (MAX_PCM_SIZE + 1)
             mock_cls.from_file.return_value = mock_audio
             with pytest.raises(AudioConversionError, match="音訊解壓後超過大小限制"):
                 _convert_to_wav(b"some-audio", "webm")
@@ -288,7 +288,7 @@ class TestCloneVoiceEndpoint:
 
     # -- file size validation (413) --
     def test_reject_oversized_file(self, client):
-        big = _make_audio(WEBM_HEADER, size=10 * 1024 * 1024 + 1)
+        big = _make_audio(WEBM_HEADER, size=MAX_FILE_SIZE + 1)
         resp = client.post(
             "/api/clone-voice",
             files={"file": ("rec.webm", big, "audio/webm")},
@@ -299,7 +299,7 @@ class TestCloneVoiceEndpoint:
 
     def test_accept_file_exactly_10mb(self, client, voice_mocks):
         """File exactly 10 MB → should pass size validation."""
-        audio = _make_audio(WEBM_HEADER, size=10 * 1024 * 1024)
+        audio = _make_audio(WEBM_HEADER, size=MAX_FILE_SIZE)
         client.app.state.tts_model.tts_to_file.side_effect = _make_synth_side_effect(WAV_STUB)
         voice_mocks.setup()
         resp = client.post(
@@ -336,7 +336,7 @@ class TestCloneVoiceEndpoint:
     def test_oversized_pcm_returns_422(self, client, voice_mocks):
         audio = _make_audio(WEBM_HEADER)
         mock_seg = MagicMock()
-        mock_seg.raw_data = b"\x00" * (50 * 1024 * 1024 + 1)
+        mock_seg.raw_data = b"\x00" * (MAX_PCM_SIZE + 1)
         voice_mocks.audio_seg_cls.from_file.return_value = mock_seg
         resp = client.post(
             "/api/clone-voice",
@@ -470,7 +470,7 @@ class TestXttsEndpoint:
     def test_queue_full_returns_503(self, client, voice_mocks):
         """xtts_pending >= MAX_XTTS_PENDING → 503."""
         audio = _make_audio(WEBM_HEADER)
-        client.app.state.xtts_pending = 4
+        client.app.state.xtts_pending = MAX_XTTS_PENDING
         try:
             voice_mocks.setup()
             resp = client.post(

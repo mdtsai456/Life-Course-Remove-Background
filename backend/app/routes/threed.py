@@ -4,7 +4,7 @@ import json
 import logging
 import struct
 
-from fastapi import APIRouter, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Response, UploadFile
 
 from app.constants import ALLOWED_3D_MIME_TYPES, PNG_MAGIC
 from app.validation import read_and_validate_upload
@@ -58,17 +58,17 @@ def _make_mock_glb() -> bytes:
     },
 )
 async def image_to_3d(file: UploadFile):
-    if file.content_type not in ALLOWED_3D_MIME_TYPES:
-        raise HTTPException(
-            status_code=415,
-            detail=f"不支援的檔案類型「{file.content_type}」。僅接受 image/png。",
-        )
+    # MIME type is informational only; final validation uses magic bytes.
+    ct = (file.content_type or "").split(";")[0].strip().lower()
+    if ct not in ALLOWED_3D_MIME_TYPES:
+        logger.debug("MIME hint %r not in allowed types; will rely on magic bytes", ct)
 
+    allowed = ", ".join(sorted(ALLOWED_3D_MIME_TYPES))
     contents, _ = await read_and_validate_upload(
         file,
         detect_type=_detect_png,
         allowed_types=ALLOWED_3D_MIME_TYPES,
-        type_error_detail="檔案內容不是有效的 PNG 圖片。",
+        type_error_detail=f"檔案內容不是有效的格式。允許：{allowed}。",
     )
 
     # TODO: 替換成真實 2D→3D 模型推理（TripoSR、Meshy 等）

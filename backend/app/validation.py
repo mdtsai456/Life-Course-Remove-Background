@@ -28,6 +28,11 @@ async def read_and_validate_upload(
         HTTPException 413 if the file exceeds max_size.
         HTTPException 415 if detect_type returns a type not in allowed_types.
     """
+    if allowed_types is not None and detect_type is None:
+        raise ValueError(
+            "allowed_types requires a detect_type callback to perform type validation"
+        )
+
     if file.size is not None and file.size > max_size:
         raise HTTPException(status_code=413, detail=FILE_TOO_LARGE_DETAIL)
 

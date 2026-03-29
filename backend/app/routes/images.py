@@ -33,17 +33,17 @@ def _detect_image_type(contents: bytes) -> str | None:
 
 @router.post("/api/remove-background")
 async def remove_background(file: UploadFile, request: Request):
-    if file.content_type not in ALLOWED_IMAGE_MIME_TYPES:
-        raise HTTPException(
-            status_code=415,
-            detail=f"不支援的檔案類型「{file.content_type}」。允許：png、jpeg、webp。",
-        )
+    # MIME type is informational only; final validation uses magic bytes.
+    ct = (file.content_type or "").split(";")[0].strip().lower()
+    if ct not in ALLOWED_IMAGE_MIME_TYPES:
+        logger.debug("MIME hint %r not in allowed types; will rely on magic bytes", ct)
 
-    contents, detected_type = await read_and_validate_upload(
+    allowed = ", ".join(sorted(ALLOWED_IMAGE_MIME_TYPES))
+    contents, _ = await read_and_validate_upload(
         file,
         detect_type=_detect_image_type,
         allowed_types=ALLOWED_IMAGE_MIME_TYPES,
-        type_error_detail="不支援的檔案類型。允許：png、jpeg、webp。",
+        type_error_detail=f"不支援的檔案類型。允許：{allowed}。",
     )
 
     session = getattr(request.app.state, "rembg_session", None)

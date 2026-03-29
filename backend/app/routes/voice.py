@@ -12,7 +12,14 @@ from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFil
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
 
-from app.constants import MAX_PCM_SIZE, MAX_XTTS_PENDING, MIME_TO_FORMAT
+from app.constants import (
+    EBML_MAGIC,
+    FTYP_MAGIC,
+    MAX_PCM_SIZE,
+    MAX_XTTS_PENDING,
+    MIME_TO_FORMAT,
+    OGGS_MAGIC,
+)
 from app.validation import read_and_validate_upload
 
 try:
@@ -30,12 +37,12 @@ def _detect_audio_type(contents: bytes) -> str | None:
     if len(contents) < 8:
         return None
     # EBML header (WebM / Matroska)
-    if contents[:4] == b"\x1a\x45\xdf\xa3":
+    if contents[:4] == EBML_MAGIC:
         return "audio/webm"
-    if contents[:4] == b"OggS":
+    if contents[:4] == OGGS_MAGIC:
         return "audio/ogg"
     # MP4: ftyp atom at offset 4 (not 0)
-    if contents[4:8] == b"ftyp":
+    if contents[4:8] == FTYP_MAGIC:
         return "audio/mp4"
     return None
 
