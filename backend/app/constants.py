@@ -9,7 +9,7 @@ JPEG_MAGIC = b"\xff\xd8\xff"
 WEBP_MAGIC_RIFF = b"RIFF"
 WEBP_MAGIC_TAG = b"WEBP"
 
-FILE_TOO_LARGE_DETAIL = "檔案過大，最大允許 10 MB。"
+FILE_TOO_LARGE_DETAIL = f"檔案過大，最大允許 {MAX_FILE_SIZE // (1024 * 1024)} MB。"
 
 # Audio magic bytes
 EBML_MAGIC = b"\x1a\x45\xdf\xa3"  # WebM / Matroska

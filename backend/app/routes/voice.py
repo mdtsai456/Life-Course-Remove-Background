@@ -16,7 +16,6 @@ from app.constants import (
     EBML_MAGIC,
     FTYP_MAGIC,
     MAX_PCM_SIZE,
-    MAX_XTTS_PENDING,
     MIME_TO_FORMAT,
     OGGS_MAGIC,
 )
@@ -267,9 +266,9 @@ async def clone_voice(request: Request, file: UploadFile, text: str | None = For
 
     language = _detect_language(stripped)
 
-    if request.app.state.xtts_pending >= MAX_XTTS_PENDING:
+    if request.app.state.xtts_semaphore.locked():
         raise HTTPException(status_code=503, detail="語音克隆服務忙碌中，請稍後再試。")
-    request.app.state.xtts_pending += 1
+    await request.app.state.xtts_semaphore.acquire()
     try:
         async with request.app.state.xtts_lock:
             result_bytes = await anyio.to_thread.run_sync(
@@ -289,7 +288,7 @@ async def clone_voice(request: Request, file: UploadFile, text: str | None = For
         logger.exception("Unexpected XTTS error")
         raise
     finally:
-        request.app.state.xtts_pending -= 1
+        request.app.state.xtts_semaphore.release()
 
     return Response(
         content=result_bytes,

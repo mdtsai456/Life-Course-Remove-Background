@@ -13,7 +13,7 @@ from pydub.exceptions import CouldntDecodeError
 
 from tests.conftest import _cleanup_modules, _make_standard_patches
 
-from app.constants import MAX_FILE_SIZE, MAX_PCM_SIZE, MAX_XTTS_PENDING
+from app.constants import MAX_FILE_SIZE, MAX_PCM_SIZE
 from app.routes.voice import (
     AudioConversionError,
     NoOutputError,
@@ -386,10 +386,10 @@ class TestXttsPreload:
         assert hasattr(client.app.state, "xtts_lock")
         assert isinstance(client.app.state.xtts_lock, asyncio.Lock)
 
-    def test_pending_counter_on_app_state(self, client):
-        """After startup, app.state.xtts_pending should be 0."""
-        assert hasattr(client.app.state, "xtts_pending")
-        assert client.app.state.xtts_pending == 0
+    def test_semaphore_on_app_state(self, client):
+        """After startup, app.state.xtts_semaphore should be an asyncio.Semaphore."""
+        assert hasattr(client.app.state, "xtts_semaphore")
+        assert isinstance(client.app.state.xtts_semaphore, asyncio.Semaphore)
 
     def test_startup_fails_when_tts_raises(self):
         """If TTS() fails at startup, the app should fail to start."""
@@ -468,9 +468,10 @@ class TestRunXtts:
 # ===========================================================================
 class TestXttsEndpoint:
     def test_queue_full_returns_503(self, client, voice_mocks):
-        """xtts_pending >= MAX_XTTS_PENDING → 503."""
+        """Semaphore fully acquired → 503."""
         audio = _make_audio(WEBM_HEADER)
-        client.app.state.xtts_pending = MAX_XTTS_PENDING
+        original = client.app.state.xtts_semaphore
+        client.app.state.xtts_semaphore = asyncio.Semaphore(0)
         try:
             voice_mocks.setup()
             resp = client.post(
@@ -481,7 +482,7 @@ class TestXttsEndpoint:
             assert resp.status_code == 503
             assert "忙碌中" in resp.json()["detail"]
         finally:
-            client.app.state.xtts_pending = 0
+            client.app.state.xtts_semaphore = original
 
     def test_audio_too_short_returns_400(self, client, voice_mocks):
         """Duration < 3s → 400."""

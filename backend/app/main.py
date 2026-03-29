@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from rembg import new_session
 
 from app.config import get_cors_allowed_origins, is_docs_enabled
+from app.constants import MAX_XTTS_PENDING
 from app.routes.images import router as images_router
 from app.routes.threed import router as threed_router
 from app.routes.voice import router as voice_router
@@ -37,12 +38,12 @@ async def lifespan(app: FastAPI):
     logger.info("XTTS v2 model loaded in %.1fs (device: %s)", elapsed, device)
     app.state.tts_model = tts
     app.state.xtts_lock = asyncio.Lock()
-    app.state.xtts_pending = 0
+    app.state.xtts_semaphore = asyncio.Semaphore(MAX_XTTS_PENDING)
 
     yield
 
     # Teardown: release models in reverse order
-    del app.state.xtts_pending
+    del app.state.xtts_semaphore
     del app.state.xtts_lock
     del app.state.tts_model
     if torch.cuda.is_available():
